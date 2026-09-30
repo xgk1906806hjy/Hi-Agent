@@ -3,8 +3,8 @@ package session_test
 import (
 	"testing"
 
-	"hi-agent/internal/chat"
-	"hi-agent/internal/session"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 
 	openai "github.com/sashabaranov/go-openai"
 )

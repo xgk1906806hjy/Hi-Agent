@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"hi-agent/internal/color"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 
 	"golang.org/x/term"
 )

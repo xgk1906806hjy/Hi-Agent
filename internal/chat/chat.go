@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"hi-agent/internal/tools"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
 
 	openai "github.com/sashabaranov/go-openai"
 )

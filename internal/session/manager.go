@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"hi-agent/internal/chat"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
 )
 
 // Manager 绑定一个 Chat 与多会话 Data；切换靠替换 history，不并行多 Client。

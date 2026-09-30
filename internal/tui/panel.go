@@ -9,7 +9,8 @@ import (
 type Panel struct {
 	Model   string
 	Session string
-	Busy    bool // 由 TUI 自己根据 BeginReply/EndReply 覆盖
+	WorkDir string // 当前工作目录（工具读写基准）
+	Busy    bool   // 由 TUI 自己根据 BeginReply/EndReply 覆盖
 
 	CtxTokens    int
 	CtxEstimated bool
@@ -58,6 +59,7 @@ func panelLines(p Panel, width int) []styledLine {
 		{"sys", strings.Repeat("─", inner)},
 		{"sys", "模型 " + p.Model},
 		{"sys", "会话 " + p.Session},
+		{"sys", "目录 " + shortPath(p.WorkDir, inner-5)},
 		{stateStyle, "状态 " + state},
 		{"", ""},
 		{"user", "上下文"},
@@ -78,6 +80,20 @@ func panelLines(p Panel, width int) []styledLine {
 		{"sys", "/help 命令  Ctrl+C 中断"},
 	}
 	return lines
+}
+
+// shortPath 过长路径保留尾部，前缀用 …。
+func shortPath(p string, max int) string {
+	if max < 8 || p == "" || textWidth(p) <= max {
+		return p
+	}
+	// 按 rune 从尾部截取
+	r := []rune(p)
+	keep := max - 1
+	if keep > len(r) {
+		keep = len(r)
+	}
+	return "…" + string(r[len(r)-keep:])
 }
 
 // ctxStyle 按占用百分比选样式：≥80% 用警示色。

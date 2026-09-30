@@ -13,25 +13,49 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"hi-agent/internal/chat"
-	"hi-agent/internal/color"
-	"hi-agent/internal/config"
-	"hi-agent/internal/session"
-	"hi-agent/internal/tools"
-	"hi-agent/internal/tui"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/config"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
 )
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
 type app struct {
-	chat *chat.Chat
-	mgr  *session.Manager
-	ui   ui
+	chat    *chat.Chat
+	mgr     *session.Manager
+	ui      ui
+	workDir string
 
 	busy     atomic.Bool
 	exitOnce sync.Once
 }
 
 func main() {
+	// 子命令：hi-agent setup-env [path/to/.env]
+	if len(os.Args) > 1 && os.Args[1] == "setup-env" {
+		src := ".env"
+		if len(os.Args) > 2 {
+			src = os.Args[2]
+		}
+		res, err := config.ApplyEnvFile(src)
+		if err != nil {
+			color.Err(color.Sys, err.Error())
+			os.Exit(1)
+		}
+		color.Out(color.Sys, "已从 "+res.Source+" 配置环境：", true)
+		color.Out(color.Sys, "  全局配置 → "+res.Global, true)
+		if len(res.UserEnv) > 0 {
+			color.Out(color.Sys, "  用户环境变量 → "+strings.Join(res.UserEnv, ", "), true)
+		}
+		if res.ShellHint != "" {
+			color.Out(color.Tool, res.ShellHint, true)
+		}
+		color.Out(color.Sys, "之后可在任意目录执行：hi-agent", true)
+		return
+	}
+
 	// —— 启动：配置、会话、UI、用量钩子、空闲中断 ——
 	cfg := config.Load()
 	c := chat.New(cfg.BaseURL, cfg.APIKey, cfg.Model)
@@ -42,7 +66,7 @@ func main() {
 		loadErr = "加载会话失败：" + err.Error() + "，将使用空会话"
 		data = session.NewData()
 	}
-	a := &app{chat: c, mgr: session.NewManager(c, data)}
+	a := &app{chat: c, mgr: session.NewManager(c, data), workDir: cfg.WorkDir}
 
 	in := bufio.NewReader(os.Stdin)
 	a.ui = a.newUI(in)
@@ -53,8 +77,13 @@ func main() {
 	if loadErr != "" {
 		a.ui.Error(loadErr)
 	}
-	a.ui.Info(fmt.Sprintf("Hi-agent —— TUI 与用量（模型：%s，会话：%s，输入 /help 查看命令）", cfg.Model, a.mgr.Current()))
-
+	a.ui.Info(fmt.Sprintf(
+		"Hi-agent —— 工作目录：%s\n模型：%s · 会话：%s · 输入 /help 查看命令\n文件工具相对当前目录读写；会话落在 .geekagent/",
+		cfg.WorkDir, cfg.Model, a.mgr.Current(),
+	))
+	if len(cfg.EnvFiles) > 0 {
+		a.ui.Info("已加载配置：" + strings.Join(cfg.EnvFiles, " → "))
+	}
 	// —— 主循环：读行 → 斜杠命令 / 普通对话 ——
 	for {
 		line, err := a.ui.ReadLine("You › ")
@@ -95,6 +124,7 @@ func (a *app) panel() tui.Panel {
 	return tui.Panel{
 		Model:          a.chat.Model(),
 		Session:        a.mgr.Current(),
+		WorkDir:        a.workDir,
 		CtxTokens:      u.ContextTokens,
 		CtxEstimated:   u.ContextEstimated,
 		CtxWindow:      u.ContextWindow,
@@ -173,8 +203,10 @@ func (a *app) handleCommand(line string) bool {
 	switch cmd {
 	case "/help":
 		a.ui.Info(helpText())
+	case "/pwd":
+		a.ui.Info("工作目录：" + a.workDir + "\n（ls/read/write/run_shell 均相对此目录；会话：" + session.Path() + "）")
 	case "/status":
-		a.ui.Info("当前会话：" + mgr.Current() + "\n" + c.Status())
+		a.ui.Info("工作目录：" + a.workDir + "\n当前会话：" + mgr.Current() + "\n" + c.Status())
 	case "/reset":
 		c.Reset()
 		mgr.SyncFromChat()
@@ -249,7 +281,8 @@ func (a *app) exit() {
 func helpText() string {
 	return fmt.Sprintf(`可用命令：
   /help              显示帮助
-  /status            显示当前会话、tokens 与护栏状态
+  /pwd               显示当前工作目录（工具读写基准）
+  /status            显示工作目录、会话、tokens 与护栏状态
   /sessions          列出全部会话（* 为当前）
   /new [id]          新建空会话并切换（可省略 id，自动 8 位）
   /open <id>         切换到已有会话
@@ -258,9 +291,11 @@ func helpText() string {
   /reset             清空当前会话记忆
   /compact           立即压缩旧对话摘要
   /exit              保存并退出（default 有内容时改名为 8 位 ID）
+在任意项目目录执行 hi-agent：读写相对当前目录；会话写入该目录下 .geekagent/。
+API Key：项目 .env、上级目录 .env，或全局 %%USERPROFILE%%\\.hi-agent\\.env（Linux/macOS: ~/.hi-agent/.env）。
 回复进行中按 Ctrl+C 中断当前轮；空闲时按 Ctrl+C 保存并退出。
 已注册工具：%s
-界面：终端中默认 TUI（右侧面板显示上下文与 tokens），GEEKAGENT_TUI=0 使用纯文本。
+界面：终端中默认 TUI，GEEKAGENT_TUI=0 使用纯文本。
 用量：GEEKAGENT_CONTEXT_WINDOW（默认 128000）；GEEKAGENT_STREAM_USAGE=0 关闭流式用量。
 历史超长时自动压缩（GEEKAGENT_MAX_HISTORY，默认 4000 字符）。
 工具轮次上限 GEEKAGENT_MAX_TOOL_TURNS（默认 8）；

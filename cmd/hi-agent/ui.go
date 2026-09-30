@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"hi-agent/internal/color"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 )
 
 // ui 抽象 REPL 的输出与输入，TUI 与纯文本两种实现。

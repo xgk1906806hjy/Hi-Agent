@@ -1,4 +1,4 @@
-module hi-agent
+module github.com/xgk1906806hjy/Hi-Agent
 
 go 1.25.5
 
