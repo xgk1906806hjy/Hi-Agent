@@ -7,13 +7,13 @@ import (
 	"hi-agent/internal/chat"
 )
 
-// Manager 绑定一个 Chat 与多会话 Data。
+// Manager 绑定一个 Chat 与多会话 Data；切换靠替换 history，不并行多 Client。
 type Manager struct {
 	data *Data
 	chat *chat.Chat
 }
 
-// NewManager 使用已有 Data 与 Chat；若 data 为 nil 则 NewData。
+// NewManager 使用已有 Data 与 Chat；若 data 为 nil 则 NewData，并立即把当前会话应用到 Chat。
 func NewManager(c *chat.Chat, data *Data) *Manager {
 	if data == nil {
 		data = NewData()
@@ -33,6 +33,7 @@ func (m *Manager) SyncFromChat() {
 	m.data.PutMessages(m.data.Current, m.chat.History())
 }
 
+// applyCurrentToChat 将 Data 中当前会话的 messages 灌入 Chat（缺失则 Ensure 空记录）。
 func (m *Manager) applyCurrentToChat() {
 	rec := m.data.Get(m.data.Current)
 	if rec == nil {
@@ -81,7 +82,7 @@ func (m *Manager) Open(id string) error {
 	return nil
 }
 
-// ListLines 返回供展示的会话列表行。
+// ListLines 返回供展示的会话列表行（当前会话前缀 *）。
 func (m *Manager) ListLines() []string {
 	m.SyncFromChat()
 	ids := m.data.IDs()
@@ -121,6 +122,8 @@ func (m *Manager) Load() (string, error) {
 // PrepareExit 退出前：同步；若当前为 default 且有消息，改名为 8 位 ID；再落盘。
 func (m *Manager) PrepareExit() (renamed string, err error) {
 	m.SyncFromChat()
+
+	// default 有内容时改名为随机 ID，避免下次启动覆盖有意义的历史
 	if m.data.Current == DefaultID {
 		rec := m.data.Get(DefaultID)
 		if rec != nil && len(rec.Messages) > 0 {
@@ -134,6 +137,7 @@ func (m *Manager) PrepareExit() (renamed string, err error) {
 			renamed = id
 		}
 	}
+
 	if err := m.data.Save(); err != nil {
 		return renamed, err
 	}

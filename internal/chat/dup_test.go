@@ -2,6 +2,8 @@ package chat
 
 import "testing"
 
+// 覆盖 dupTracker：连续同参、窗口内非连续同参、窗口挤出后计数重置。
+
 func TestDupTrackerConsecutive(t *testing.T) {
 	d := newDupTracker(3, 12)
 	if d.add("a") || d.add("a") {

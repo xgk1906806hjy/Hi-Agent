@@ -1,3 +1,7 @@
+// Package tools 维护进程内工具注册表：说明书、执行函数、OpenAI tools 转换与按名执行。
+//
+// 新增工具必须通过 Register；禁止在 chat 循环里硬编码工具列表。
+// 错误以文本返回给模型（Exec 不向上抛），便于工具循环继续。
 package tools
 
 import (
@@ -8,20 +12,20 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// Tool 工具最小抽象：说明书 + 执行函数。
+// Tool 工具最小抽象：给模型看的说明书 + 本地执行函数。
 type Tool struct {
-	Name        string
-	Description string
-	Parameters  any
-	Run         func(argsJSON string) (string, error)
+	Name        string                                       // 唯一名称，对应 function.name
+	Description string                                       // 自然语言说明，影响模型是否选用
+	Parameters  any                                          // JSON Schema 风格参数定义
+	Run         func(argsJSON string) (string, error)        // 执行体；err 会被 Exec 转成文本
 }
 
 var (
-	mu       sync.RWMutex
-	registry []Tool
+	mu       sync.RWMutex // 保护 registry
+	registry []Tool       // 注册顺序即 init 注册顺序
 )
 
-// Register 注册工具；重名 panic，保证清单与执行一致。
+// Register 注册工具；空名或重名会 panic（启动期失败，避免静默丢工具）。
 func Register(t Tool) {
 	if t.Name == "" {
 		panic("tools: empty tool name")
@@ -36,7 +40,7 @@ func Register(t Tool) {
 	registry = append(registry, t)
 }
 
-// Names 返回已注册工具名（供帮助文案等）。
+// Names 返回已注册工具名（供 /help 等文案）。
 func Names() []string {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -47,7 +51,7 @@ func Names() []string {
 	return out
 }
 
-// readonlyToolNames 只读工具（后期收缩可见工具集时保留）。
+// readonlyToolNames 后期工具集收缩时仍暴露的只读工具（与 Day7 护栏配合）。
 var readonlyToolNames = map[string]struct{}{
 	"get_current_time": {},
 	"ls":               {},
@@ -55,7 +59,7 @@ var readonlyToolNames = map[string]struct{}{
 	"read":             {},
 }
 
-// ReadonlyNames 返回已注册的只读工具名。
+// ReadonlyNames 返回「已注册 ∩ 只读集合」的工具名（顺序随 registry）。
 func ReadonlyNames() []string {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -74,6 +78,7 @@ func ToOpenAI() []openai.Tool {
 }
 
 // ToOpenAIAllow 仅暴露 allow 中的工具；allow 为 nil/空时暴露全部。
+// chat 在工具轮次后期用 ReadonlyNames() 作为 allow，实现「只读收缩」。
 func ToOpenAIAllow(allow []string) []openai.Tool {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -105,7 +110,8 @@ func ToOpenAIAllow(allow []string) []openai.Tool {
 	return out
 }
 
-// Exec 按名称执行工具；错误以文本形式返回给模型。
+// Exec 按名称执行工具；错误与未知工具一律变成字符串返回给模型。
+// 在锁外调用 Run，避免慢工具（如 shell）长时间占用注册表锁。
 func Exec(name, argsJSON string) string {
 	mu.RLock()
 	var tool *Tool
@@ -133,6 +139,7 @@ func Exec(name, argsJSON string) string {
 	return result
 }
 
+// init 按固定顺序注册内置工具：时间 → shell → 文件族。
 func init() {
 	registerTime()
 	registerShell()

@@ -1,3 +1,5 @@
+// Package tui 提供轻量全屏终端界面：左侧消息区、右侧状态面板、底部输入行。
+// 输入仍走 cooked mode（bufio 读行）；渲染用 ANSI 绝对定位整屏重绘，不依赖 TUI 框架。
 package tui
 
 import (
@@ -14,17 +16,18 @@ import (
 )
 
 const (
-	panelWidth       = 34
-	minWidthForPanel = 80
+	panelWidth       = 34                 // 右侧面板固定列宽
+	minWidthForPanel = 80                 // 终端宽不足时隐藏右栏
 	renderInterval   = 40 * time.Millisecond
 	maxEntries       = 3000
 	maxProgressRunes = 600
 )
 
+// entry 消息区一条记录；open 表示模型流式正文可继续追加到本条。
 type entry struct {
 	style string
 	text  string
-	open  bool // 模型流式正文可继续追加
+	open  bool
 }
 
 // TUI 轻量全屏界面：左侧消息、右侧面板、底部输入行。
@@ -90,7 +93,7 @@ func (t *TUI) Notice(s string) { t.add("tool", s) }
 // Error 追加错误信息。
 func (t *TUI) Error(s string) { t.add("tool", strings.TrimLeft(s, "\n")) }
 
-// UserEcho 追加用户输入。
+// UserEcho 追加用户输入（先关闭开流段落，再插入空行与 You › 行）。
 func (t *TUI) UserEcho(s string) {
 	t.mu.Lock()
 	t.closeOpen()
@@ -120,7 +123,7 @@ func (t *TUI) Model(s string) {
 	t.Refresh()
 }
 
-// BeginReply 标记生成中。
+// BeginReply 标记生成中（面板状态与底部提示）。
 func (t *TUI) BeginReply() {
 	t.mu.Lock()
 	t.busy = true
@@ -128,7 +131,7 @@ func (t *TUI) BeginReply() {
 	t.Flush()
 }
 
-// EndReply 结束生成并立即重绘。
+// EndReply 结束生成、关闭开流段落并立即重绘。
 func (t *TUI) EndReply() {
 	t.mu.Lock()
 	t.busy = false
@@ -198,6 +201,7 @@ func (t *TUI) Flush() {
 	os.Stdout.WriteString(frame)
 }
 
+// add 关闭开流后追加一条消息，并走节流刷新。
 func (t *TUI) add(style, s string) {
 	t.mu.Lock()
 	t.closeOpen()
@@ -207,18 +211,21 @@ func (t *TUI) add(style, s string) {
 	t.Refresh()
 }
 
+// closeOpen 结束当前模型流式段落，避免后续非 Model 写入被合并。
 func (t *TUI) closeOpen() {
 	if n := len(t.entries); n > 0 {
 		t.entries[n-1].open = false
 	}
 }
 
+// trim 条目过多时丢弃较早部分，保留约 2/3 上限条数。
 func (t *TUI) trim() {
 	if len(t.entries) > maxEntries {
 		t.entries = append([]entry(nil), t.entries[len(t.entries)-maxEntries*2/3:]...)
 	}
 }
 
+// screenSize 读取终端尺寸；失败时回退到 100×30。
 func screenSize() (int, int) {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || w <= 0 || h <= 0 {
@@ -228,6 +235,7 @@ func screenSize() (int, int) {
 }
 
 // frame 生成一整帧的 ANSI 输出（调用方持锁）。
+// 布局：可视行 = 高−2；宽≥80 时左栏消息 + 右栏面板，否则消息占满。
 func (t *TUI) frame(p Panel) string {
 	w, h := screenSize()
 	if h < 4 {
@@ -239,9 +247,9 @@ func (t *TUI) frame(p Panel) string {
 	}
 	leftW := w - 1
 	if pw > 0 {
-		leftW = w - 1 - pw - 1
+		leftW = w - 1 - pw - 1 // 减分隔符与右栏
 	}
-	rows := h - 2
+	rows := h - 2 // 提示行 + 输入行
 
 	view := t.visibleLines(leftW, rows)
 	var pl []styledLine
@@ -285,7 +293,7 @@ func (t *TUI) frame(p Panel) string {
 	return b.String()
 }
 
-// visibleLines 从最新消息倒推，只折行填满可视区所需的部分。
+// visibleLines 从最新消息倒推折行，只保留填满可视区所需的尾部行。
 func (t *TUI) visibleLines(width, rows int) []styledLine {
 	var lines []styledLine
 	for i := len(t.entries) - 1; i >= 0 && len(lines) < rows; i-- {
@@ -310,7 +318,7 @@ func paint(style, s string) string {
 	return color.Paint(style, s)
 }
 
-// fitFill 与 fit 类似，但用 fill 字符补齐。
+// fitFill 与 fit 类似，但用 fill 字符把剩余列补齐（分隔提示行）。
 func fitFill(s string, width int, fill rune) string {
 	out := fit(s, width)
 	trimmed := strings.TrimRight(out, " ")

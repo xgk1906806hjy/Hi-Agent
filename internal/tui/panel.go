@@ -25,6 +25,7 @@ type Panel struct {
 	ToolTurns, ToolCalls int
 }
 
+// styledLine 一行带样式标签的纯文本（颜色在渲染阶段套用）。
 type styledLine struct {
 	style string
 	text  string
@@ -79,6 +80,7 @@ func panelLines(p Panel, width int) []styledLine {
 	return lines
 }
 
+// ctxStyle 按占用百分比选样式：≥80% 用警示色。
 func ctxStyle(pct int) string {
 	switch {
 	case pct >= 80:
@@ -104,6 +106,7 @@ func bar(pct, width int) string {
 	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", inner-filled) + "]"
 }
 
+// fmtTokens 把 token/字符数格式化为短读法（k / M）。
 func fmtTokens(n int) string {
 	switch {
 	case n < 1000:

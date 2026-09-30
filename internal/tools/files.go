@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	maxReadChars   = 8000
-	maxDiffLines   = 100
-	maxGlobResults = 200
+	maxReadChars   = 8000 // read 单次最多返回的字符数（按 rune）
+	maxDiffLines   = 100  // simpleDiff 最多展示的 +/- 行数
+	maxGlobResults = 200  // glob 最多匹配路径数
 )
 
+// registerFiles 注册 ls / glob / read / write / patch。
 func registerFiles() {
 	Register(Tool{
 		Name:        "ls",
@@ -26,7 +27,7 @@ func registerFiles() {
 			},
 			"additionalProperties": false,
 		},
-		Run: runLS,
+		Run: runLs,
 	})
 	Register(Tool{
 		Name:        "glob",
@@ -97,7 +98,8 @@ func registerFiles() {
 	})
 }
 
-func runLS(argsJSON string) (string, error) {
+// runLs 列出目录项，每行「dir|file\t名称」。
+func runLs(argsJSON string) (string, error) {
 	var args struct {
 		Path string `json:"path"`
 	}
@@ -122,6 +124,7 @@ func runLS(argsJSON string) (string, error) {
 	return strings.TrimSpace(b.String()), nil
 }
 
+// runGlob 从当前目录 Walk，按 pattern 匹配相对路径。
 func runGlob(argsJSON string) (string, error) {
 	var args struct {
 		Pattern string `json:"pattern"`
@@ -147,11 +150,12 @@ func runGlob(argsJSON string) (string, error) {
 	return fmt.Sprintf("匹配到 %d 个：\n%s%s", len(matches), strings.Join(matches, "\n"), hint), nil
 }
 
+// globWalk 遍历「.」下文件；跳过 .git；达上限后 SkipAll。
 func globWalk(pattern string) ([]string, error) {
 	var matches []string
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil // 单个路径错误不中断整次搜索
 		}
 		if d.IsDir() {
 			if filepath.Base(path) == ".git" {
@@ -172,18 +176,20 @@ func globWalk(pattern string) ([]string, error) {
 	return matches, err
 }
 
-// pathMatch 支持 * 与 **（按 / 分段）。
+// pathMatch 支持 * 与 **（按 / 分段匹配）。
 func pathMatch(pattern, name string) (bool, error) {
 	return matchParts(strings.Split(pattern, "/"), strings.Split(name, "/"))
 }
 
+// matchParts 递归匹配路径段：普通段用 filepath.Match，** 可跨任意层目录。
 func matchParts(pat, name []string) (bool, error) {
 	for len(pat) > 0 && len(name) > 0 {
 		p := pat[0]
 		if p == "**" {
 			if len(pat) == 1 {
-				return true, nil
+				return true, nil // 尾部 ** 吃掉剩余路径
 			}
+			// 尝试让 ** 消费 0..len(name) 段后继续匹配后续 pattern
 			for i := 0; i <= len(name); i++ {
 				ok, err := matchParts(pat[1:], name[i:])
 				if err != nil {
@@ -205,12 +211,14 @@ func matchParts(pat, name []string) (bool, error) {
 		pat = pat[1:]
 		name = name[1:]
 	}
+	// 吃掉尾部多余的 **
 	for len(pat) > 0 && pat[0] == "**" {
 		pat = pat[1:]
 	}
 	return len(pat) == 0 && len(name) == 0, nil
 }
 
+// runRead 按字符 offset 分段读取；超出长度时给出下一 offset 提示。
 func runRead(argsJSON string) (string, error) {
 	var args struct {
 		Path   string `json:"path"`
@@ -248,6 +256,7 @@ func runRead(argsJSON string) (string, error) {
 	return fmt.Sprintf("（共 %d 字符 / 读到第 %d-%d 段%s）\n%s", total, off, end, more, chunk), nil
 }
 
+// runWrite 整体覆盖写入，经 commitWrite（diff + 确认）。
 func runWrite(argsJSON string) (string, error) {
 	var args struct {
 		Path    string `json:"path"`
@@ -267,11 +276,13 @@ func runWrite(argsJSON string) (string, error) {
 	return fmt.Sprintf("已写入 %s（%d 字符）", path, len([]rune(args.Content))), nil
 }
 
+// hunk 表示一处「唯一原文 → 新文」替换。
 type hunk struct {
 	Old string `json:"old"`
 	New string `json:"new"`
 }
 
+// runPatch 顺序应用 hunk；每个 old 必须在当前全文恰好出现 1 次，再 commitWrite。
 func runPatch(argsJSON string) (string, error) {
 	var args struct {
 		Path  string `json:"path"`
@@ -312,7 +323,7 @@ func runPatch(argsJSON string) (string, error) {
 	return fmt.Sprintf("已应用 %d 处修改到 %s", len(args.Hunks), path), nil
 }
 
-// commitWrite：展示 diff → 确认 → 落盘。内容未变则直接成功。
+// commitWrite：读旧内容 → 未变则跳过 → simpleDiff → confirm → MkdirAll → WriteFile。
 func commitWrite(path, next string) (ok bool, message string) {
 	var oldtxt string
 	existing := true
@@ -334,6 +345,7 @@ func commitWrite(path, next string) (ok bool, message string) {
 	if !confirm(prompt) {
 		return false, "已取消写入"
 	}
+	// 父目录为「.」时 MkdirAll 失败可忽略（当前目录已存在）。
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
 		return false, err.Error()
 	}
@@ -343,6 +355,7 @@ func commitWrite(path, next string) (ok bool, message string) {
 	return true, ""
 }
 
+// simpleDiff 去掉公共前后缀行后，输出 -旧 / +新；超过 maxDiffLines 截断。
 func simpleDiff(oldtxt, newtxt string) string {
 	oldLines := strings.Split(strings.ReplaceAll(oldtxt, "\r\n", "\n"), "\n")
 	newLines := strings.Split(strings.ReplaceAll(newtxt, "\r\n", "\n"), "\n")

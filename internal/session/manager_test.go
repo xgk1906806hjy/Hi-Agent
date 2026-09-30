@@ -9,6 +9,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// 验证切换会话时 history 互不泄漏：新建清空、Open 恢复各自消息。
+
 func TestManagerSwitchNoLeak(t *testing.T) {
 	c := chat.New("http://localhost", "k", "m")
 	m := session.NewManager(c, session.NewData())

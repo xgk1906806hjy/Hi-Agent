@@ -33,7 +33,7 @@ func runeWidth(r rune) int {
 	return 1
 }
 
-// textWidth 返回字符串显示宽度。
+// textWidth 返回字符串显示宽度（按 runeWidth 累加）。
 func textWidth(s string) int {
 	w := 0
 	for _, r := range s {
@@ -56,7 +56,7 @@ func sanitize(s string) string {
 		case r == '\t':
 			b.WriteString("    ")
 		case r == utf8.RuneError, r < 0x20, r == 0x7f:
-			// 丢弃
+			// 丢弃控制字符与非法 UTF-8
 		default:
 			b.WriteRune(r)
 		}
@@ -94,7 +94,7 @@ func wrap(s string, width int) []string {
 	return out
 }
 
-// fit 把单行截断/补空格到恰好 width 列。
+// fit 把单行截断/补空格到恰好 width 列（按显示宽度，非字节数）。
 func fit(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -115,7 +115,7 @@ func fit(s string, width int) string {
 	return b.String()
 }
 
-// truncateRunes 限制展示用文本长度，超出时追加提示。
+// truncateRunes 限制展示用文本 rune 数，超出时追加截断提示。
 func truncateRunes(s string, max int) string {
 	if max <= 0 || utf8.RuneCountInString(s) <= max {
 		return s

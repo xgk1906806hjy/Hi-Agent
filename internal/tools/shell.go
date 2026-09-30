@@ -12,14 +12,16 @@ import (
 )
 
 const (
-	shellTimeout   = 10 * time.Second
-	maxOutputChars = 2000
+	shellTimeout   = 10 * time.Second // 单次命令超时
+	maxOutputChars = 2000             // 合并输出的最大 rune 数
 )
 
+// shellArgs 对应 run_shell 的 JSON 参数。
 type shellArgs struct {
 	Command string `json:"command"`
 }
 
+// registerShell 注册 run_shell：确认 + 超时 + 截断。
 func registerShell() {
 	Register(Tool{
 		Name:        "run_shell",
@@ -39,6 +41,8 @@ func registerShell() {
 	})
 }
 
+// runShell 解析参数 → 确认 → 执行 → 合并 stdout/stderr → 截断。
+// 超时与非零退出仍返回说明文本（error=nil），让模型能读到失败原因。
 func runShell(argsJSON string) (string, error) {
 	var args shellArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
@@ -80,6 +84,7 @@ func runShell(argsJSON string) (string, error) {
 	return truncate(out), nil
 }
 
+// shellCommand 按操作系统选择解释器：Windows 用 cmd /C，其它用 bash -c。
 func shellCommand(ctx context.Context, command string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
 		return exec.CommandContext(ctx, "cmd", "/C", command)
@@ -87,6 +92,7 @@ func shellCommand(ctx context.Context, command string) *exec.Cmd {
 	return exec.CommandContext(ctx, "bash", "-c", command)
 }
 
+// truncate 按 rune 截断过长输出，并附带原长度提示。
 func truncate(text string) string {
 	r := []rune(text)
 	if len(r) <= maxOutputChars {

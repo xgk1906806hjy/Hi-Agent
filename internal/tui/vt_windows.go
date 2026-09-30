@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// enableVT 打开 Windows 控制台的 ANSI 转义处理；返回恢复原模式的函数。
+// enableVT 打开 Windows 控制台的 ANSI/VT 处理；返回恢复原 ConsoleMode 的函数。
 func enableVT() (func(), error) {
 	h := windows.Handle(os.Stdout.Fd())
 	var mode uint32

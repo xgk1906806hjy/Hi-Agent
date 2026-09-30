@@ -25,6 +25,7 @@ type ui interface {
 	Close()
 }
 
+// plainUI 非 TUI 时的着色行输出；Confirm/ReadLine 走同一 bufio.Reader。
 type plainUI struct {
 	in *bufio.Reader
 }
@@ -32,7 +33,7 @@ type plainUI struct {
 func (p *plainUI) Info(s string)     { color.Out(color.Sys, s, true) }
 func (p *plainUI) Notice(s string)   { color.Out(color.Tool, s, true) }
 func (p *plainUI) Error(s string)    { color.Err(color.Sys, s) }
-func (p *plainUI) UserEcho(string)   {}
+func (p *plainUI) UserEcho(string)   {} // 终端已回显，避免重复
 func (p *plainUI) Progress(s string) { color.Out(color.Tool, s, false) }
 func (p *plainUI) Model(s string)    { color.Out(color.Model, s, false) }
 func (p *plainUI) BeginReply()       { color.Out(color.Sys, "", true) }
@@ -40,12 +41,14 @@ func (p *plainUI) EndReply()         { color.Out(color.Sys, "", true) }
 func (p *plainUI) Refresh()          {}
 func (p *plainUI) Close()            {}
 
+// ReadLine 在 stdout 打印 prompt 后读一行。
 func (p *plainUI) ReadLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stdout, color.Paint(color.User, prompt))
 	line, err := p.in.ReadString('\n')
 	return strings.TrimSpace(line), err
 }
 
+// Confirm 打印提示并以 y/yes 为确认。
 func (p *plainUI) Confirm(prompt string) bool {
 	color.Out(color.Tool, prompt+" [y/N] ", false)
 	line, err := p.in.ReadString('\n')

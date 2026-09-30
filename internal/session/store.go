@@ -1,3 +1,5 @@
+// Package session 管理多会话内存与落盘（.geekagent/sessions.json），
+// 与单个 chat.Chat 的 history 双向同步。
 package session
 
 import (
@@ -15,24 +17,25 @@ import (
 )
 
 const (
+	// DefaultID 默认会话 ID；退出时若有消息会改名为 8 位 hex。
 	DefaultID   = "default"
 	fileRelPath = ".geekagent/sessions.json"
 )
 
-// Data 落盘结构。
+// Data 落盘结构：当前会话 ID + 会话 Map。
 type Data struct {
-	Current  string              `json:"current"`
-	Sessions map[string]*Record  `json:"sessions"`
+	Current  string             `json:"current"`
+	Sessions map[string]*Record `json:"sessions"`
 }
 
-// Record 单会话快照。
+// Record 单会话快照；Messages 即 OpenAI history，零转换。
 type Record struct {
 	ID        string                         `json:"id"`
 	UpdatedAt time.Time                      `json:"updatedAt"`
 	Messages  []openai.ChatCompletionMessage `json:"messages"`
 }
 
-// Path 返回会话文件绝对/相对路径（相对工作目录）。
+// Path 返回会话文件路径（相对工作目录）。
 func Path() string {
 	return fileRelPath
 }
@@ -119,7 +122,7 @@ func (d *Data) Get(id string) *Record {
 	return d.Sessions[id]
 }
 
-// PutMessages 写入当前会话消息并刷新时间戳。
+// PutMessages 写入指定会话消息并刷新时间戳（深拷贝 messages）。
 func (d *Data) PutMessages(id string, msgs []openai.ChatCompletionMessage) {
 	rec := d.Sessions[id]
 	if rec == nil {
@@ -131,14 +134,14 @@ func (d *Data) PutMessages(id string, msgs []openai.ChatCompletionMessage) {
 	rec.UpdatedAt = time.Now()
 }
 
-// Ensure 保证 id 存在。
+// Ensure 保证 id 对应的空记录存在。
 func (d *Data) Ensure(id string) {
 	if _, ok := d.Sessions[id]; !ok {
 		d.Sessions[id] = &Record{ID: id, UpdatedAt: time.Now()}
 	}
 }
 
-// Rename 将 oldID 改为 newID（目标已存在则失败）。
+// Rename 将 oldID 改为 newID（目标已存在则失败）；若 Current 是 oldID 则一并更新。
 func (d *Data) Rename(oldID, newID string) error {
 	if oldID == newID {
 		return nil
@@ -181,6 +184,7 @@ func ValidID(id string) bool {
 	return true
 }
 
+// cloneMsgs 深拷贝 messages（含 ToolCalls），避免与 Chat history 共享底层切片。
 func cloneMsgs(in []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	if len(in) == 0 {
 		return nil

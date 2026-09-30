@@ -13,15 +13,17 @@ import (
 
 const (
 	defaultMaxHistoryChars = 4000
-	keepRecent             = 6
+	keepRecent             = 6 // 压缩后至少保留的最近消息条数
 )
 
+// compressSystem 压缩器人设：只输出中文要点，不保留逐字对话。
 const compressSystem = `你是对话压缩器。把用户贴出的历史对话压缩成简洁的中文要点，尽量保留以下信息：
 - 用户的目标、需求、做过的决定与偏好；
 - 出现过的文件路径、shell 命令、工具调用与关键结论；
 - 尚未完成、仍在推进中的事项。
 只输出压缩后的要点，不要解释、不要寒暄、不要保留逐字对话。`
 
+// maxHistoryChars 历史 JSON 字节长度阈值；GEEKAGENT_MAX_HISTORY，≤0 或非法 → 默认。
 func maxHistoryChars() int {
 	v := strings.TrimSpace(os.Getenv("GEEKAGENT_MAX_HISTORY"))
 	if v == "" {
@@ -34,6 +36,7 @@ func maxHistoryChars() int {
 	return n
 }
 
+// historySize 用 JSON Marshal 字节长度度量 history 体积；失败视为 0。
 func (c *Chat) historySize() int {
 	b, err := json.Marshal(c.history)
 	if err != nil {
@@ -43,8 +46,9 @@ func (c *Chat) historySize() int {
 }
 
 // compactOldMessages 把除最近 keepRecent 条外的旧消息压成一条 system 摘要。
-// 返回被合并的旧消息条数；无摘要产出时返回 0。
+// 返回被合并的旧消息条数；无摘要产出时返回 0（不改 history）。
 func (c *Chat) compactOldMessages(ctx context.Context) (int, error) {
+	// —— 切分：避开以 orphan tool 开头的 recent ——
 	split := len(c.history) - keepRecent
 	if split <= 0 {
 		return 0, nil
@@ -65,6 +69,7 @@ func (c *Chat) compactOldMessages(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
+	// —— 非流式摘要请求 ——
 	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: c.model,
 		Messages: []openai.ChatCompletionMessage{

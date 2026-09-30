@@ -1,3 +1,5 @@
+// Package chat 持有对话 history（即 OpenAI Chat Completions 的 messages，零转换），
+// 提供流式多轮回复、工具调用循环、历史压缩、循环护栏与用量统计。
 package chat
 
 import (
@@ -17,6 +19,7 @@ import (
 // ErrInterrupted 表示用户中断了当前回复；已完成的工具结果保留在 history 中。
 var ErrInterrupted = errors.New("interrupted")
 
+// 上一轮结束原因码（供 Status 映射为中文）。
 const (
 	endOK        = "ok"
 	endMaxTurns  = "max_turns"
@@ -32,21 +35,22 @@ type Chat struct {
 	model   string
 	history []openai.ChatCompletionMessage
 
+	// 上一轮 StreamReply 的护栏统计（供 /status）。
 	lastTurns  int
 	lastTools  int
 	lastChars  int
 	lastReason string
 	lastShrunk bool
 
-	turnUsage    TokenUsage
-	cumUsage     TokenUsage
+	turnUsage    TokenUsage // 本轮（最近一次 StreamReply）
+	cumUsage     TokenUsage // 进程累计
 	ctxTokens    int
 	ctxEstimated bool
-	ctxBase      int
+	ctxBase      int // 真实 prompt 相对 history 体积的固定开销（工具定义等）
 	onUsage      func()
 }
 
-// New 创建对话实例。
+// New 创建对话实例；baseURL 会去掉尾部 "/"。
 func New(baseURL, apiKey, model string) *Chat {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = strings.TrimRight(baseURL, "/")
@@ -57,6 +61,7 @@ func New(baseURL, apiKey, model string) *Chat {
 	}
 }
 
+// pendingCall 流式聚拢中的单个 tool_call（按 Index 合并分片）。
 type pendingCall struct {
 	id   string
 	name string
@@ -65,7 +70,9 @@ type pendingCall struct {
 
 // StreamReply 将用户输入入队；历史超阈值时先压缩；若模型发起 tool_calls 则执行并回传。
 // ctx 取消时返回 ErrInterrupted，不回滚已写入的 history。
+// onDelta：模型正文片段，或以 "\n[" 开头的进度行（由 REPL 染黄）。
 func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(string)) error {
+	// —— 快照与入队：非中断错误时回滚到入队 user 之前 ——
 	snapshot := append([]openai.ChatCompletionMessage(nil), c.history...)
 	c.history = append(c.history, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleUser,
@@ -78,6 +85,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 	c.lastShrunk = false
 	c.turnUsage = TokenUsage{}
 
+	// —— 自动压缩：体积超阈值且条数多于 keepRecent ——
 	if c.historySize() > maxHistoryChars() {
 		if len(c.history) > keepRecent {
 			dropped, err := c.compactOldMessages(ctx)
@@ -103,6 +111,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 	shrunk := false
 	replyChars := 0
 
+	// —— 工具循环 ——
 	for turn := 0; turn < limit; turn++ {
 		if err := ctx.Err(); err != nil {
 			c.lastReason = endInterrupt
@@ -110,6 +119,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 			return ErrInterrupted
 		}
 
+		// 按轮次选择全量或只读工具集
 		var openaiTools []openai.Tool
 		if shrinkAt > 0 && turn >= shrinkAt {
 			openaiTools = tools.ToOpenAIAllow(readonly)
@@ -139,6 +149,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 			return err
 		}
 
+		// 收流：聚拢正文与按 Index 分片的 tool_calls
 		var answer strings.Builder
 		calls := map[int]*pendingCall{}
 
@@ -150,6 +161,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 			if recvErr != nil {
 				stream.Close()
 				if isInterrupt(ctx, recvErr) {
+					// 中断：半截正文入库（无完整工具名时），不回滚
 					if answer.Len() > 0 && !allNamed(calls) {
 						c.history = append(c.history, openai.ChatCompletionMessage{
 							Role:    openai.ChatMessageRoleAssistant,
@@ -198,6 +210,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 		replyChars += utf8.RuneCountInString(answer.String())
 		c.lastChars = replyChars
 
+		// 分支：完整 tool_calls → 执行并做护栏检查
 		if len(calls) > 0 && allNamed(calls) {
 			idxs := make([]int, 0, len(calls))
 			for i := range calls {
@@ -225,6 +238,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 				ToolCalls: toolCalls,
 			})
 
+			// 顺序执行工具；熔断后仍回传 tool 消息以保证配对
 			stopReason := ""
 			for _, tc := range toolCalls {
 				if stopReason != "" {
@@ -279,6 +293,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 			continue
 		}
 
+		// 分支：无完整工具调用 → 纯文本结束
 		c.history = append(c.history, openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleAssistant,
 			Content: answer.String(),
@@ -287,11 +302,14 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 		return nil
 	}
 
+	// —— 轮次上限 → 强制收尾 ——
 	c.lastReason = endMaxTurns
 	onDelta(fmt.Sprintf("\n[工具轮次已达上限（%d），改为根据已有结果直接作答]\n", limit))
 	return c.streamFinalAnswer(ctx, snapshot, onDelta)
 }
 
+// streamFinalAnswer 禁止再调工具，基于已有结果给出用户可读结论。
+// 临时 wrapUpSystem 只附在请求 messages 上，不写入持久 history。
 func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatCompletionMessage, onDelta func(string)) error {
 	if err := ctx.Err(); err != nil {
 		c.lastReason = endInterrupt
@@ -315,6 +333,7 @@ func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatComp
 			c.lastReason = endInterrupt
 			return ErrInterrupted
 		}
+		// 创建失败（非中断）：友好文案入库，不回滚，会话可继续
 		fallback := "工具调用次数较多、出现重复调用或达到回复预算，已暂停继续调工具。请根据上面已返回的结果继续，或把任务拆小后再试。"
 		onDelta(fallback)
 		c.history = append(c.history, openai.ChatCompletionMessage{
@@ -366,6 +385,7 @@ func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatComp
 	return nil
 }
 
+// isInterrupt 判定 ctx 取消或错误本身为 Canceled / DeadlineExceeded。
 func isInterrupt(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return true
@@ -373,6 +393,7 @@ func isInterrupt(ctx context.Context, err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
+// allNamed 要求每个 pending call 都已聚拢到非空函数名（流式分片完成的判据）。
 func allNamed(calls map[int]*pendingCall) bool {
 	if len(calls) == 0 {
 		return false
@@ -461,6 +482,7 @@ func (c *Chat) SetHistory(msgs []openai.ChatCompletionMessage) {
 	c.estimateContext()
 }
 
+// cloneMessages 深拷贝 messages（含 ToolCalls 切片），避免会话切换时共享底层数组。
 func cloneMessages(in []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	if len(in) == 0 {
 		return nil

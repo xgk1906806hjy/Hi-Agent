@@ -8,6 +8,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// 覆盖 Data 落盘往返、Rename default、NewID 长度。
+
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	oldWD, err := os.Getwd()

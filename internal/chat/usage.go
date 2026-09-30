@@ -24,6 +24,7 @@ func (u TokenUsage) Total() int {
 	return u.Prompt + u.Completion
 }
 
+// add 累加一次上游 Usage。
 func (u *TokenUsage) add(v openai.Usage) {
 	u.Prompt += v.PromptTokens
 	u.Completion += v.CompletionTokens
@@ -53,6 +54,7 @@ func streamUsageEnabled() bool {
 	return strings.TrimSpace(os.Getenv("GEEKAGENT_STREAM_USAGE")) != "0"
 }
 
+// streamOptions 在启用时返回 IncludeUsage；关闭时返回 nil（不附带 stream_options）。
 func streamOptions() *openai.StreamOptions {
 	if !streamUsageEnabled() {
 		return nil
@@ -60,6 +62,7 @@ func streamOptions() *openai.StreamOptions {
 	return &openai.StreamOptions{IncludeUsage: true}
 }
 
+// contextWindow 面板/Status 显示的上下文窗口上限；GEEKAGENT_CONTEXT_WINDOW。
 func contextWindow() int {
 	return envInt("GEEKAGENT_CONTEXT_WINDOW", defaultContextWindow)
 }

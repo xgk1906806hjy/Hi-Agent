@@ -1,3 +1,5 @@
+// hi-agent 进程入口与 REPL：加载配置/会话，接线确认与斜杠命令，驱动 chat.StreamReply。
+// 终端且未设 GEEKAGENT_TUI=0 时启用 TUI，否则纯文本；退出（/exit、EOF、空闲 Ctrl+C）时保存会话并恢复终端。
 package main
 
 import (
@@ -19,6 +21,7 @@ import (
 	"hi-agent/internal/tui"
 )
 
+// app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
 type app struct {
 	chat *chat.Chat
 	mgr  *session.Manager
@@ -29,6 +32,7 @@ type app struct {
 }
 
 func main() {
+	// —— 启动：配置、会话、UI、用量钩子、空闲中断 ——
 	cfg := config.Load()
 	c := chat.New(cfg.BaseURL, cfg.APIKey, cfg.Model)
 
@@ -51,6 +55,7 @@ func main() {
 	}
 	a.ui.Info(fmt.Sprintf("Hi-agent —— TUI 与用量（模型：%s，会话：%s，输入 /help 查看命令）", cfg.Model, a.mgr.Current()))
 
+	// —— 主循环：读行 → 斜杠命令 / 普通对话 ——
 	for {
 		line, err := a.ui.ReadLine("You › ")
 		if err != nil {
@@ -67,6 +72,7 @@ func main() {
 		}
 		a.reply(line)
 	}
+	// —— 退出：EOF 等走到此处 ——
 	a.exit()
 }
 
@@ -83,6 +89,7 @@ func (a *app) newUI(in *bufio.Reader) ui {
 	return t
 }
 
+// panel 每帧向 TUI 提供模型/会话/上下文与用量快照。
 func (a *app) panel() tui.Panel {
 	u := a.chat.Usage()
 	return tui.Panel{
@@ -105,6 +112,7 @@ func (a *app) panel() tui.Panel {
 	}
 }
 
+// reply 一轮普通对话：回显 → StreamReply（进度/正文分流）→ 中断不退出。
 func (a *app) reply(line string) {
 	a.ui.UserEcho(line)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -129,6 +137,7 @@ func (a *app) reply(line string) {
 	}
 }
 
+// isProgress 识别工具/压缩/预算等进度前缀，供 UI 与正文分流。
 func isProgress(delta string) bool {
 	for _, p := range []string{"\n[调用工具", "\n[历史压缩", "\n[工具轮次", "\n[重复工具", "\n[回复预算", "\n[工具集"} {
 		if strings.HasPrefix(delta, p) {
@@ -138,7 +147,8 @@ func isProgress(delta string) bool {
 	return false
 }
 
-// watchIdleInterrupt 空闲时 Ctrl+C 走正常退出（保存会话、恢复终端）；回复中交给 NotifyContext 中断当前轮。
+// watchIdleInterrupt 空闲时 Ctrl+C 走正常退出（保存会话、恢复终端）；
+// 回复中 busy=true，信号交给 NotifyContext 只中断当前轮。
 func (a *app) watchIdleInterrupt() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt)
@@ -218,7 +228,7 @@ func (a *app) handleCommand(line string) bool {
 	return false
 }
 
-// exit 保存会话、恢复终端并打印结果；并发调用只执行一次。
+// exit 保存会话、关闭 UI（恢复终端）并打印结果；并发调用只执行一次。
 func (a *app) exit() {
 	a.exitOnce.Do(func() {
 		renamed, err := a.mgr.PrepareExit()
@@ -235,6 +245,7 @@ func (a *app) exit() {
 	})
 }
 
+// helpText 返回 /help 文案（含会话路径、已注册工具与相关环境变量）。
 func helpText() string {
 	return fmt.Sprintf(`可用命令：
   /help              显示帮助
