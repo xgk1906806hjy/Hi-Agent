@@ -8,109 +8,172 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"hi-agent/internal/chat"
 	"hi-agent/internal/color"
 	"hi-agent/internal/config"
 	"hi-agent/internal/session"
 	"hi-agent/internal/tools"
+	"hi-agent/internal/tui"
 )
+
+type app struct {
+	chat *chat.Chat
+	mgr  *session.Manager
+	ui   ui
+
+	busy     atomic.Bool
+	exitOnce sync.Once
+}
 
 func main() {
 	cfg := config.Load()
 	c := chat.New(cfg.BaseURL, cfg.APIKey, cfg.Model)
 
 	data, err := session.Load()
+	loadErr := ""
 	if err != nil {
-		color.Err(color.Sys, "加载会话失败："+err.Error()+"，将使用空会话")
+		loadErr = "加载会话失败：" + err.Error() + "，将使用空会话"
 		data = session.NewData()
 	}
-	mgr := session.NewManager(c, data)
+	a := &app{chat: c, mgr: session.NewManager(c, data)}
 
 	in := bufio.NewReader(os.Stdin)
-	tools.SetConfirm(func(prompt string) bool {
-		color.Out(color.Tool, prompt+" [y/N] ", false)
-		line, err := in.ReadString('\n')
-		if err != nil {
-			return false
-		}
-		ans := strings.ToLower(strings.TrimSpace(line))
-		return ans == "y" || ans == "yes"
-	})
+	a.ui = a.newUI(in)
+	c.SetUsageHook(a.ui.Refresh)
+	tools.SetConfirm(a.ui.Confirm)
+	a.watchIdleInterrupt()
 
-	color.Out(color.Sys, fmt.Sprintf(
-		"Hi-agent —— 多会话（模型：%s，会话：%s，输入 /help 查看命令）",
-		cfg.Model, mgr.Current(),
-	), true)
+	if loadErr != "" {
+		a.ui.Error(loadErr)
+	}
+	a.ui.Info(fmt.Sprintf("Hi-agent —— TUI 与用量（模型：%s，会话：%s，输入 /help 查看命令）", cfg.Model, a.mgr.Current()))
 
 	for {
-		fmt.Fprint(os.Stdout, color.Paint(color.User, "You › "))
-		line, err := in.ReadString('\n')
+		line, err := a.ui.ReadLine("You › ")
 		if err != nil {
 			break
 		}
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-
 		if strings.HasPrefix(line, "/") {
-			if handleCommand(line, c, mgr) {
+			if a.handleCommand(line) {
 				return
 			}
 			continue
 		}
+		a.reply(line)
+	}
+	a.exit()
+}
 
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		color.Out(color.Sys, "", true)
-		err = c.StreamReply(ctx, line, func(delta string) {
-			if strings.HasPrefix(delta, "\n[调用工具") ||
-				strings.HasPrefix(delta, "\n[历史压缩") ||
-				strings.HasPrefix(delta, "\n[工具轮次") ||
-				strings.HasPrefix(delta, "\n[重复工具") ||
-				strings.HasPrefix(delta, "\n[回复预算") ||
-				strings.HasPrefix(delta, "\n[工具集") {
-				color.Out(color.Tool, delta, false)
-				return
-			}
-			color.Out(color.Model, delta, false)
-		})
-		stop()
-		color.Out(color.Sys, "", true)
-		if errors.Is(err, chat.ErrInterrupted) {
-			color.Out(color.Tool, "\n（已中断当前回复，可继续提问）", true)
-			continue
+// newUI 默认在终端中启用 TUI；GEEKAGENT_TUI=0 或非终端时用纯文本输出。
+func (a *app) newUI(in *bufio.Reader) ui {
+	if strings.TrimSpace(os.Getenv("GEEKAGENT_TUI")) == "0" || !tui.Supported() {
+		return &plainUI{in: in}
+	}
+	t := tui.New(in, a.panel)
+	if err := t.Start(); err != nil {
+		color.Err(color.Sys, err.Error()+"，改用纯文本模式")
+		return &plainUI{in: in}
+	}
+	return t
+}
+
+func (a *app) panel() tui.Panel {
+	u := a.chat.Usage()
+	return tui.Panel{
+		Model:          a.chat.Model(),
+		Session:        a.mgr.Current(),
+		CtxTokens:      u.ContextTokens,
+		CtxEstimated:   u.ContextEstimated,
+		CtxWindow:      u.ContextWindow,
+		HistChars:      u.HistoryChars,
+		HistLimit:      u.HistoryLimit,
+		Messages:       u.Messages,
+		TurnPrompt:     u.Turn.Prompt,
+		TurnCompletion: u.Turn.Completion,
+		TurnRequests:   u.Turn.Requests,
+		CumPrompt:      u.Cumulative.Prompt,
+		CumCompletion:  u.Cumulative.Completion,
+		CumRequests:    u.Cumulative.Requests,
+		ToolTurns:      u.LastToolTurns,
+		ToolCalls:      u.LastToolCalls,
+	}
+}
+
+func (a *app) reply(line string) {
+	a.ui.UserEcho(line)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	a.busy.Store(true)
+	a.ui.BeginReply()
+	err := a.chat.StreamReply(ctx, line, func(delta string) {
+		if isProgress(delta) {
+			a.ui.Progress(delta)
+			return
 		}
-		if err != nil {
-			color.Err(color.Sys, "\n请求失败："+err.Error())
+		a.ui.Model(delta)
+	})
+	stop()
+	a.busy.Store(false)
+	a.ui.EndReply()
+	if errors.Is(err, chat.ErrInterrupted) {
+		a.ui.Notice("（已中断当前回复，可继续提问）")
+		return
+	}
+	if err != nil {
+		a.ui.Error("请求失败：" + err.Error())
+	}
+}
+
+func isProgress(delta string) bool {
+	for _, p := range []string{"\n[调用工具", "\n[历史压缩", "\n[工具轮次", "\n[重复工具", "\n[回复预算", "\n[工具集"} {
+		if strings.HasPrefix(delta, p) {
+			return true
 		}
 	}
+	return false
+}
 
-	exitWithSave(mgr)
+// watchIdleInterrupt 空闲时 Ctrl+C 走正常退出（保存会话、恢复终端）；回复中交给 NotifyContext 中断当前轮。
+func (a *app) watchIdleInterrupt() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt)
+	go func() {
+		for range ch {
+			if a.busy.Load() {
+				continue
+			}
+			a.exit()
+			os.Exit(0)
+		}
+	}()
 }
 
 // handleCommand 处理斜杠命令；返回 true 表示应退出进程。
-func handleCommand(line string, c *chat.Chat, mgr *session.Manager) bool {
+func (a *app) handleCommand(line string) bool {
 	fields := strings.Fields(line)
 	cmd := fields[0]
 	args := fields[1:]
+	c, mgr := a.chat, a.mgr
 
 	switch cmd {
 	case "/help":
-		printHelp()
+		a.ui.Info(helpText())
 	case "/status":
-		color.Out(color.Sys, "当前会话："+mgr.Current()+"\n"+c.Status(), true)
+		a.ui.Info("当前会话：" + mgr.Current() + "\n" + c.Status())
 	case "/reset":
 		c.Reset()
 		mgr.SyncFromChat()
-		color.Out(color.Sys, "（已清空当前会话记忆）", true)
+		a.ui.Info("（已清空当前会话记忆）")
 	case "/compact":
-		color.Out(color.Tool, "["+c.Compact(context.Background())+"]", true)
+		a.ui.Notice("[" + c.Compact(context.Background()) + "]")
 		mgr.SyncFromChat()
 	case "/sessions":
-		for _, row := range mgr.ListLines() {
-			color.Out(color.Sys, row, true)
-		}
+		a.ui.Info(strings.Join(mgr.ListLines(), "\n"))
 	case "/new":
 		id := ""
 		if len(args) > 0 {
@@ -118,58 +181,64 @@ func handleCommand(line string, c *chat.Chat, mgr *session.Manager) bool {
 		}
 		newID, err := mgr.NewSession(id)
 		if err != nil {
-			color.Err(color.Sys, err.Error())
-			return false
+			a.ui.Error(err.Error())
+			break
 		}
-		color.Out(color.Sys, fmt.Sprintf("（已新建并切换到会话 %s）", newID), true)
+		a.ui.Info(fmt.Sprintf("（已新建并切换到会话 %s）", newID))
 	case "/open":
 		if len(args) < 1 {
-			color.Out(color.Sys, "用法：/open <会话ID>", true)
-			return false
+			a.ui.Info("用法：/open <会话ID>")
+			break
 		}
 		if err := mgr.Open(args[0]); err != nil {
-			color.Err(color.Sys, err.Error())
-			return false
+			a.ui.Error(err.Error())
+			break
 		}
-		color.Out(color.Sys, fmt.Sprintf("（已切换到会话 %s）", mgr.Current()), true)
+		a.ui.Info(fmt.Sprintf("（已切换到会话 %s）", mgr.Current()))
 	case "/save":
 		if err := mgr.Save(); err != nil {
-			color.Err(color.Sys, "保存失败："+err.Error())
-			return false
+			a.ui.Error("保存失败：" + err.Error())
+			break
 		}
-		color.Out(color.Sys, fmt.Sprintf("（已保存到 %s）", session.Path()), true)
+		a.ui.Info(fmt.Sprintf("（已保存到 %s）", session.Path()))
 	case "/load":
 		cur, err := mgr.Load()
 		if err != nil {
-			color.Err(color.Sys, "加载失败："+err.Error())
-			return false
+			a.ui.Error("加载失败：" + err.Error())
+			break
 		}
-		color.Out(color.Sys, fmt.Sprintf("（已从 %s 加载，当前会话 %s）", session.Path(), cur), true)
+		a.ui.Info(fmt.Sprintf("（已从 %s 加载，当前会话 %s）", session.Path(), cur))
 	case "/exit":
-		exitWithSave(mgr)
+		a.exit()
 		return true
 	default:
-		color.Out(color.Sys, fmt.Sprintf("未知命令：%s（输入 /help 查看）", cmd), true)
+		a.ui.Info(fmt.Sprintf("未知命令：%s（输入 /help 查看）", cmd))
 	}
+	a.ui.Refresh()
 	return false
 }
 
-func exitWithSave(mgr *session.Manager) {
-	renamed, err := mgr.PrepareExit()
-	if err != nil {
-		color.Err(color.Sys, "退出保存失败："+err.Error())
-	} else if renamed != "" {
-		color.Out(color.Sys, fmt.Sprintf("（default 已重命名为 %s 并保存）", renamed), true)
-	} else {
-		color.Out(color.Sys, fmt.Sprintf("（会话已保存到 %s）", session.Path()), true)
-	}
-	color.Out(color.Sys, "bye", true)
+// exit 保存会话、恢复终端并打印结果；并发调用只执行一次。
+func (a *app) exit() {
+	a.exitOnce.Do(func() {
+		renamed, err := a.mgr.PrepareExit()
+		a.ui.Close()
+		switch {
+		case err != nil:
+			color.Err(color.Sys, "退出保存失败："+err.Error())
+		case renamed != "":
+			color.Out(color.Sys, fmt.Sprintf("（default 已重命名为 %s 并保存）", renamed), true)
+		default:
+			color.Out(color.Sys, fmt.Sprintf("（会话已保存到 %s）", session.Path()), true)
+		}
+		color.Out(color.Sys, "bye", true)
+	})
 }
 
-func printHelp() {
-	color.Out(color.Sys, fmt.Sprintf(`可用命令：
+func helpText() string {
+	return fmt.Sprintf(`可用命令：
   /help              显示帮助
-  /status            显示当前会话与护栏状态
+  /status            显示当前会话、tokens 与护栏状态
   /sessions          列出全部会话（* 为当前）
   /new [id]          新建空会话并切换（可省略 id，自动 8 位）
   /open <id>         切换到已有会话
@@ -178,11 +247,13 @@ func printHelp() {
   /reset             清空当前会话记忆
   /compact           立即压缩旧对话摘要
   /exit              保存并退出（default 有内容时改名为 8 位 ID）
-回复进行中按 Ctrl+C 可中断当前轮（不退出程序）。
+回复进行中按 Ctrl+C 中断当前轮；空闲时按 Ctrl+C 保存并退出。
 已注册工具：%s
+界面：终端中默认 TUI（右侧面板显示上下文与 tokens），GEEKAGENT_TUI=0 使用纯文本。
+用量：GEEKAGENT_CONTEXT_WINDOW（默认 128000）；GEEKAGENT_STREAM_USAGE=0 关闭流式用量。
 历史超长时自动压缩（GEEKAGENT_MAX_HISTORY，默认 4000 字符）。
 工具轮次上限 GEEKAGENT_MAX_TOOL_TURNS（默认 8）；
 重复熔断 GEEKAGENT_MAX_DUP_TOOLS（默认 3）/ GEEKAGENT_DUP_WINDOW（默认 12）；
 回复预算 GEEKAGENT_MAX_REPLY_CHARS（默认 120000，0=关闭）；
-工具收缩 GEEKAGENT_SHRINK_TOOLS_AFTER（默认约 3/4 轮次起只读，0=关闭）。`, session.Path(), strings.Join(tools.Names(), ", ")), true)
+工具收缩 GEEKAGENT_SHRINK_TOOLS_AFTER（默认约 3/4 轮次起只读，0=关闭）。`, session.Path(), strings.Join(tools.Names(), ", "))
 }

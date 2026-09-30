@@ -37,6 +37,13 @@ type Chat struct {
 	lastChars  int
 	lastReason string
 	lastShrunk bool
+
+	turnUsage    TokenUsage
+	cumUsage     TokenUsage
+	ctxTokens    int
+	ctxEstimated bool
+	ctxBase      int
+	onUsage      func()
 }
 
 // New 创建对话实例。
@@ -69,6 +76,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 	c.lastChars = 0
 	c.lastReason = endEmpty
 	c.lastShrunk = false
+	c.turnUsage = TokenUsage{}
 
 	if c.historySize() > maxHistoryChars() {
 		if len(c.history) > keepRecent {
@@ -115,10 +123,11 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 		}
 
 		stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-			Model:    c.model,
-			Messages: c.history,
-			Tools:    openaiTools,
-			Stream:   true,
+			Model:         c.model,
+			Messages:      c.history,
+			Tools:         openaiTools,
+			Stream:        true,
+			StreamOptions: streamOptions(),
 		})
 		if err != nil {
 			if isInterrupt(ctx, err) {
@@ -154,6 +163,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 				c.history = snapshot
 				return recvErr
 			}
+			c.recordUsage(resp.Usage, true)
 			if len(resp.Choices) == 0 {
 				continue
 			}
@@ -294,10 +304,11 @@ func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatComp
 	})
 
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:      c.model,
-		Messages:   msgs,
-		ToolChoice: "none",
-		Stream:     true,
+		Model:         c.model,
+		Messages:      msgs,
+		ToolChoice:    "none",
+		Stream:        true,
+		StreamOptions: streamOptions(),
 	})
 	if err != nil {
 		if isInterrupt(ctx, err) {
@@ -334,6 +345,7 @@ func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatComp
 			c.history = snapshot
 			return recvErr
 		}
+		c.recordUsage(resp.Usage, true)
 		if len(resp.Choices) == 0 {
 			continue
 		}
@@ -406,9 +418,16 @@ func (c *Chat) Status() string {
 	if c.lastShrunk {
 		shrunkNote = "是"
 	}
+	ctxLabel := fmt.Sprintf("%d / %d", c.ctxTokens, contextWindow())
+	if c.ctxEstimated {
+		ctxLabel = "≈" + ctxLabel
+	}
 	return fmt.Sprintf(
-		"模型：%s\n消息条数：%d\n历史字符：%d / %d\n工具轮次上限：%d\n重复熔断：窗口内 %d 次同参（窗口 %d）\n回复预算：%s 字符\n工具收缩：%s\n上一轮：工具轮次 %d，执行工具 %d 次，正文+工具约 %d 字符，曾收缩：%s，结束原因：%s",
+		"模型：%s\n上下文 tokens：%s\n本轮 tokens：输入 %d，输出 %d（%d 次请求）\n累计 tokens：输入 %d，输出 %d（%d 次请求）\n消息条数：%d\n历史字符：%d / %d\n工具轮次上限：%d\n重复熔断：窗口内 %d 次同参（窗口 %d）\n回复预算：%s 字符\n工具收缩：%s\n上一轮：工具轮次 %d，执行工具 %d 次，正文+工具约 %d 字符，曾收缩：%s，结束原因：%s",
 		c.model,
+		ctxLabel,
+		c.turnUsage.Prompt, c.turnUsage.Completion, c.turnUsage.Requests,
+		c.cumUsage.Prompt, c.cumUsage.Completion, c.cumUsage.Requests,
 		len(c.history),
 		c.historySize(),
 		maxHistoryChars(),
@@ -430,7 +449,7 @@ func (c *Chat) History() []openai.ChatCompletionMessage {
 	return cloneMessages(c.history)
 }
 
-// SetHistory 用深拷贝替换 history，并清空上一轮护栏统计。
+// SetHistory 用深拷贝替换 history，清空上一轮统计，并按新 history 估算上下文占用。
 func (c *Chat) SetHistory(msgs []openai.ChatCompletionMessage) {
 	c.history = cloneMessages(msgs)
 	c.lastTurns = 0
@@ -438,6 +457,8 @@ func (c *Chat) SetHistory(msgs []openai.ChatCompletionMessage) {
 	c.lastChars = 0
 	c.lastReason = endEmpty
 	c.lastShrunk = false
+	c.turnUsage = TokenUsage{}
+	c.estimateContext()
 }
 
 func cloneMessages(in []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
@@ -454,7 +475,7 @@ func cloneMessages(in []openai.ChatCompletionMessage) []openai.ChatCompletionMes
 	return out
 }
 
-// Reset 清空对话记忆。
+// Reset 清空对话记忆（累计 tokens 保留，属进程级统计）。
 func (c *Chat) Reset() {
 	c.history = nil
 	c.lastTurns = 0
@@ -462,4 +483,6 @@ func (c *Chat) Reset() {
 	c.lastChars = 0
 	c.lastReason = endEmpty
 	c.lastShrunk = false
+	c.turnUsage = TokenUsage{}
+	c.estimateContext()
 }

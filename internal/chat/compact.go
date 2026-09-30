@@ -75,6 +75,8 @@ func (c *Chat) compactOldMessages(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	usage := resp.Usage
+	c.recordUsage(&usage, false)
 	if len(resp.Choices) == 0 {
 		return 0, nil
 	}
@@ -87,6 +89,7 @@ func (c *Chat) compactOldMessages(ctx context.Context) (int, error) {
 		Role:    openai.ChatMessageRoleSystem,
 		Content: "【此前对话摘要】\n" + text,
 	}}, recent...)
+	c.estimateContext()
 	return len(old), nil
 }
 
@@ -95,6 +98,9 @@ func (c *Chat) Compact(ctx context.Context) string {
 	if len(c.history) <= keepRecent {
 		return "历史压缩：没有可压缩的旧消息"
 	}
+	// 手动压缩只计入累计，不改写上一轮回复的「本轮」用量。
+	turn := c.turnUsage
+	defer func() { c.turnUsage = turn }()
 	dropped, err := c.compactOldMessages(ctx)
 	if err != nil {
 		return "历史压缩失败：保留原历史"

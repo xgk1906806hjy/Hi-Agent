@@ -169,7 +169,9 @@ Hi-agent/
 | 日常流程 | `/opsx-explore`（可选）→ `/opsx-propose` → 审阅 → `/opsx-apply` → `/opsx-archive` |
 | 归档后 | delta 合并进 `openspec/specs/`，本 `doc/` 方案作路线图参考，以 specs 为准 |
 
-## 6. 当前起点
+## 6. 当前进度
 
-当前状态：Day 1 能力已落在 `cmd/hi-agent` + `internal/*`。  
-下一步：在同一结构上叠加 Day 2（工具调用循环），新增 `internal/tools`，不新建 `day2/` 目录。
+**已完成：Day 1–7**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量）。  
+工具循环护栏（轮次 / 重复熔断 / 预算 / 收缩）已作为横切能力落地。  
+
+**下一步：Day 8**（权限 allow/ask/deny、路径越界、密钥脱敏、`/undo`），在现有 `internal/` 上增量实现，不新建 day 目录。
