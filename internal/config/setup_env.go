@@ -64,6 +64,11 @@ func ApplyEnvFile(src string) (ApplyResult, error) {
 		"OPENAI_API_KEY",
 		"OPENAI_BASE_URL",
 		"OPENAI_MODEL",
+		"GEEKAGENT_PROVIDER",
+		"HI_AGENT_PROVIDER",
+		"HI_AGENT_BASE_URL",
+		"HI_AGENT_API_KEY",
+		"HI_AGENT_MODEL",
 	}
 	toSet := map[string]string{}
 	for _, k := range persistKeys {
@@ -72,7 +77,7 @@ func ApplyEnvFile(src string) (ApplyResult, error) {
 		}
 	}
 	if len(toSet) == 0 {
-		out.ShellHint = "全局 .env 已写入，但未找到非空的 OPENAI_API_KEY/BASE_URL/MODEL，跳过系统环境变量。"
+		out.ShellHint = "全局 .env 已写入，但未找到非空的 OPENAI_* / GEEKAGENT_PROVIDER 等键，跳过系统环境变量。"
 		return out, nil
 	}
 

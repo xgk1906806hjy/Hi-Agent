@@ -52,13 +52,17 @@ type Chat struct {
 
 // New 创建对话实例；baseURL 会去掉尾部 "/"。
 func New(baseURL, apiKey, model string) *Chat {
+	c := &Chat{history: nil}
+	c.Reconfigure(baseURL, apiKey, model)
+	return c
+}
+
+// Reconfigure 热切换 API 端点与模型名，保留当前 history。
+func (c *Chat) Reconfigure(baseURL, apiKey, model string) {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = strings.TrimRight(baseURL, "/")
-	return &Chat{
-		client:  openai.NewClientWithConfig(cfg),
-		model:   model,
-		history: nil,
-	}
+	c.client = openai.NewClientWithConfig(cfg)
+	c.model = model
 }
 
 // pendingCall 流式聚拢中的单个 tool_call（按 Index 合并分片）。

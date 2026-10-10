@@ -82,6 +82,8 @@ hi-agent setup-env /path/to/.env
 
 启动时配置加载优先级（高 → 低）：进程已有环境变量 → 当前目录向上的 `.env` → 全局 `~/.hi-agent/.env`。
 
+**模型供应商**（`GEEKAGENT_PROVIDER`）：内置 `deepseek`（默认）、`openai`、`moonshot`、`qwen`、`zhipu`、`siliconflow`、`openrouter`、`groq`、`ollama`；中转站用 `custom` 并自填 `OPENAI_BASE_URL`。也可用厂商专用 Key（如 `DEEPSEEK_API_KEY`）。详见 `/help` 或 `.env.example`。
+
 > 也可以不跑 setup-env，只在某个项目下放 `.env`；适合单项目。要「任意目录都能跑」请用上面的一键脚本。
 
 ### 3. 启动

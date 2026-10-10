@@ -8,16 +8,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 // Config 模型与接口配置，供 chat.New 使用。
 type Config struct {
-	BaseURL string // API 根路径，例如 https://api.deepseek.com
-	APIKey  string // Bearer / SDK 密钥（必填）
-	Model   string // Chat Completions 的 model 字段
+	Provider string // 供应商 id（deepseek / openai / custom …）
+	BaseURL  string // API 根路径，例如 https://api.deepseek.com
+	APIKey   string // Bearer / SDK 密钥（必填）
+	Model    string // Chat Completions 的 model 字段
 
 	// WorkDir 启动时的绝对工作目录；ls/read/write/shell/会话落盘均相对此目录。
 	WorkDir string
@@ -30,6 +30,19 @@ var dotenvKeys = []string{
 	"OPENAI_BASE_URL",
 	"OPENAI_API_KEY",
 	"OPENAI_MODEL",
+	"HI_AGENT_BASE_URL",
+	"HI_AGENT_API_KEY",
+	"HI_AGENT_MODEL",
+	"GEEKAGENT_PROVIDER",
+	"HI_AGENT_PROVIDER",
+	"GEEKAGENT_API_KEY",
+	"DEEPSEEK_API_KEY",
+	"MOONSHOT_API_KEY",
+	"DASHSCOPE_API_KEY",
+	"ZHIPU_API_KEY",
+	"SILICONFLOW_API_KEY",
+	"OPENROUTER_API_KEY",
+	"GROQ_API_KEY",
 	"GEEKAGENT_TUI",
 	"GEEKAGENT_STREAM_USAGE",
 	"GEEKAGENT_CONTEXT_WINDOW",
@@ -61,29 +74,22 @@ func Load() Config {
 	loaded := loadDotEnvCascade(workDir)
 	restoreEnv(preserved)
 
-	baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
-	if baseURL == "" {
-		baseURL = "https://api.deepseek.com"
-	}
-	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	model := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-	if model == "" {
-		model = "deepseek-v4-flash"
-	}
-
-	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "缺少 OPENAI_API_KEY。")
+	ep, err := ResolveEndpointFromEnv()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
 		fmt.Fprintln(os.Stderr, "可任选其一：")
 		fmt.Fprintln(os.Stderr, "  1) 在当前项目放 .env（可参考仓库 .env.example）")
 		fmt.Fprintln(os.Stderr, "  2) 写入用户全局配置：~/.hi-agent/.env")
-		fmt.Fprintln(os.Stderr, "  3) 在 shell 中 export OPENAI_API_KEY=...")
+		fmt.Fprintln(os.Stderr, "  3) 设置 GEEKAGENT_PROVIDER=deepseek|openai|custom… 与对应密钥")
+		fmt.Fprintln(os.Stderr, "  4) 自定义中转：GEEKAGENT_PROVIDER=custom + OPENAI_BASE_URL + OPENAI_API_KEY")
 		os.Exit(1)
 	}
 
 	return Config{
-		BaseURL:  baseURL,
-		APIKey:   apiKey,
-		Model:    model,
+		Provider: ep.Provider,
+		BaseURL:  ep.BaseURL,
+		APIKey:   ep.APIKey,
+		Model:    ep.Model,
 		WorkDir:  workDir,
 		EnvFiles: loaded,
 	}

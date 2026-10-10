@@ -16,22 +16,32 @@ import (
 )
 
 const (
-	panelWidth       = 34                 // 右侧面板固定列宽
-	minWidthForPanel = 80                 // 终端宽不足时隐藏右栏
+	panelWidth       = 34 // 右侧面板固定列宽
+	minWidthForPanel = 80 // 终端宽不足时隐藏右栏
 	renderInterval   = 40 * time.Millisecond
 	maxEntries       = 3000
 	maxProgressRunes = 600
+	maxFoldDetail    = 12000 // 折叠块内部详情上限（仅存不展示）
 )
 
-// entry 消息区一条记录；open 表示模型流式正文可继续追加到本条。
+// entry 消息区一条记录；open 表示可继续追加（模型正文或折叠过程块）。
 type entry struct {
 	style string
 	text  string
 	open  bool
+
+	// 折叠过程块（style == "fold"）
+	fold     bool
+	detail   string
+	tools    int
+	thinks   int
+	compacts int
+	guards   int
+	lastLbl  string
 }
 
 // TUI 轻量全屏界面：左侧消息、右侧面板、底部输入行。
-// 输入仍用终端行缓冲（cooked mode）读取，渲染用绝对定位整屏重绘。
+// 输入在 ReadLine 时切 raw mode（可滚动、斜杠提示）；渲染用绝对定位整屏重绘。
 type TUI struct {
 	in    *bufio.Reader
 	panel func() Panel
@@ -40,8 +50,14 @@ type TUI struct {
 	entries    []entry
 	busy       bool
 	prompt     string
+	inputBuf   string // raw 模式下当前编辑缓冲
+	scrollOff  int    // 相对底部上翻的行数
+	slashCmds  []SlashCmd
 	lastRender time.Time
 	dirty      bool
+	think      ThinkStream
+	foldOn     bool
+	menu       *menuState // 非 nil 时左侧显示选择菜单
 
 	started   bool
 	stopOnce  sync.Once
@@ -50,7 +66,14 @@ type TUI struct {
 
 // New 创建 TUI；panel 在每次渲染时调用以获取最新面板数据。
 func New(in *bufio.Reader, panel func() Panel) *TUI {
-	return &TUI{in: in, panel: panel}
+	return &TUI{in: in, panel: panel, foldOn: FoldEnabled()}
+}
+
+// SetSlashCommands 设置 `/` 输入时的命令提示列表。
+func (t *TUI) SetSlashCommands(cmds []SlashCmd) {
+	t.mu.Lock()
+	t.slashCmds = append([]SlashCmd(nil), cmds...)
+	t.mu.Unlock()
 }
 
 // Supported 判断 stdin 与 stdout 是否均为终端。
@@ -77,6 +100,7 @@ func (t *TUI) Close() {
 		if !t.started {
 			return
 		}
+		disableMouse()
 		os.Stdout.WriteString("\x1b[0m\x1b[?25h\x1b[?1049l")
 		if t.restoreVT != nil {
 			t.restoreVT()
@@ -104,18 +128,53 @@ func (t *TUI) UserEcho(s string) {
 	t.Flush()
 }
 
-// Progress 追加工具/压缩等进度行（去掉首尾换行，过长截断展示）。
+// Progress 追加工具/压缩等进度；默认折叠进单一「过程」摘要行。
 func (t *TUI) Progress(s string) {
 	s = strings.Trim(s, "\n")
-	t.add("tool", truncateRunes(s, maxProgressRunes))
+	if s == "" {
+		return
+	}
+	if !t.foldOn {
+		t.add("tool", truncateRunes(s, maxProgressRunes))
+		return
+	}
+	t.mu.Lock()
+	t.appendFoldLocked(s)
+	t.trim()
+	t.mu.Unlock()
+	t.Refresh()
 }
 
-// Model 追加模型流式正文（与上一段正文合并）。
+// Model 追加模型流式正文；若含 <think> 等标签则拆入折叠过程块。
 func (t *TUI) Model(s string) {
+	if s == "" {
+		return
+	}
+	if !t.foldOn {
+		t.appendModel(s)
+		return
+	}
+	think, model := t.think.Feed(s)
+	if think != "" {
+		t.mu.Lock()
+		t.appendThinkLocked(think)
+		t.trim()
+		t.mu.Unlock()
+		t.Refresh()
+	}
+	if model != "" {
+		t.appendModel(model)
+	}
+}
+
+func (t *TUI) appendModel(s string) {
 	t.mu.Lock()
-	if n := len(t.entries); n > 0 && t.entries[n-1].open {
+	// 正文开始前，若有开着的过程块先收成「已折叠」摘要
+	t.sealOpenFoldLocked(false)
+	if n := len(t.entries); n > 0 && t.entries[n-1].open && t.entries[n-1].style == "model" {
 		t.entries[n-1].text += s
 	} else {
+		t.closeOpen()
 		t.entries = append(t.entries, entry{style: "model", text: strings.TrimLeft(s, "\n"), open: true})
 	}
 	t.trim()
@@ -127,6 +186,7 @@ func (t *TUI) Model(s string) {
 func (t *TUI) BeginReply() {
 	t.mu.Lock()
 	t.busy = true
+	t.think = ThinkStream{}
 	t.mu.Unlock()
 	t.Flush()
 }
@@ -135,22 +195,107 @@ func (t *TUI) BeginReply() {
 func (t *TUI) EndReply() {
 	t.mu.Lock()
 	t.busy = false
+	t.sealOpenFoldLocked(true)
 	t.closeOpen()
 	t.mu.Unlock()
 	t.Flush()
 }
 
-// ReadLine 在底部输入行显示 prompt 并读取一行。
+// appendThinkLocked 将思考内容并入折叠块（不重复累加 thinks 计数）。
+func (t *TUI) appendThinkLocked(chunk string) {
+	if n := len(t.entries); n > 0 && t.entries[n-1].fold && t.entries[n-1].open {
+		e := &t.entries[n-1]
+		if e.thinks == 0 {
+			e.thinks = 1
+		}
+		e.detail = appendDetail(e.detail, chunk)
+		e.lastLbl = "思考"
+		e.text = FoldSummary(e.tools, e.thinks, e.compacts, e.guards, e.lastLbl, false)
+		return
+	}
+	t.closeOpen()
+	e := entry{
+		style:   "fold",
+		fold:    true,
+		open:    true,
+		thinks:  1,
+		lastLbl: "思考",
+		detail:  truncateRunes(chunk, maxFoldDetail),
+	}
+	e.text = FoldSummary(e.tools, e.thinks, e.compacts, e.guards, e.lastLbl, false)
+	t.entries = append(t.entries, e)
+}
+
+// appendFoldLocked 将进度行并入当前折叠块（调用方持锁）。
+func (t *TUI) appendFoldLocked(s string) {
+	kind, label := ClassifyProgress(s)
+	if n := len(t.entries); n > 0 && t.entries[n-1].fold && t.entries[n-1].open {
+		e := &t.entries[n-1]
+		e.detail = appendDetail(e.detail, s)
+		bumpFoldCounts(e, kind)
+		if label != "" {
+			e.lastLbl = label
+		}
+		e.text = FoldSummary(e.tools, e.thinks, e.compacts, e.guards, e.lastLbl, false)
+		return
+	}
+	t.closeOpen()
+	e := entry{
+		style:  "fold",
+		fold:   true,
+		open:   true,
+		detail: truncateRunes(s, maxFoldDetail),
+	}
+	bumpFoldCounts(&e, kind)
+	e.lastLbl = label
+	e.text = FoldSummary(e.tools, e.thinks, e.compacts, e.guards, e.lastLbl, false)
+	t.entries = append(t.entries, e)
+}
+
+func bumpFoldCounts(e *entry, kind ProgressKind) {
+	switch kind {
+	case ProgressTool:
+		e.tools++
+	case ProgressThink:
+		e.thinks++
+	case ProgressCompact:
+		e.compacts++
+	case ProgressGuard:
+		e.guards++
+	}
+}
+
+func appendDetail(old, s string) string {
+	if old == "" {
+		return truncateRunes(s, maxFoldDetail)
+	}
+	out := old + "\n" + s
+	return truncateRunes(out, maxFoldDetail)
+}
+
+// sealOpenFoldLocked 将开着的折叠块收成最终摘要；force 表示回复结束。
+func (t *TUI) sealOpenFoldLocked(force bool) {
+	n := len(t.entries)
+	if n == 0 {
+		return
+	}
+	e := &t.entries[n-1]
+	if !e.fold || !e.open {
+		return
+	}
+	if !force {
+		// 正文到来时收拢：标记已折叠，但仍允许后续 Progress 开新块
+		e.text = FoldSummary(e.tools, e.thinks, e.compacts, e.guards, "", true)
+		e.open = false
+		return
+	}
+	e.text = FoldSummary(e.tools, e.thinks, e.compacts, e.guards, "", true)
+	e.open = false
+}
+
+// ReadLine 在底部输入行显示 prompt；raw 模式下支持 PgUp/PgDn 滚动与 `/` 命令提示。
 func (t *TUI) ReadLine(prompt string) (string, error) {
-	t.mu.Lock()
-	t.prompt = prompt
-	t.mu.Unlock()
-	t.Flush()
-	line, err := t.in.ReadString('\n')
-	t.mu.Lock()
-	t.prompt = ""
-	t.mu.Unlock()
-	return strings.TrimSpace(line), err
+	return t.rawReadLine(prompt)
 }
 
 // Confirm 把确认内容（如 diff）写入消息区，并在输入行询问 y/N。
@@ -251,7 +396,12 @@ func (t *TUI) frame(p Panel) string {
 	}
 	rows := h - 2 // 提示行 + 输入行
 
-	view := t.visibleLines(leftW, rows)
+	var view []styledLine
+	if t.menu != nil {
+		view = menuLines(t.menu, leftW, rows)
+	} else {
+		view = t.visibleLines(leftW, rows)
+	}
 	var pl []styledLine
 	if pw > 0 {
 		pl = panelLines(p, pw)
@@ -277,43 +427,78 @@ func (t *TUI) frame(p Panel) string {
 		b.WriteString("\x1b[K")
 	}
 
-	hint := "─ Enter 发送 · Ctrl+C 中断回复 · /help 命令 "
+	hint := t.hintLine(w - 1)
 	fmt.Fprintf(&b, "\x1b[%d;1H", h-1)
 	b.WriteString(color.Paint(color.Sys, fitFill(hint, w-1, '─')))
 	b.WriteString("\x1b[K")
 
 	fmt.Fprintf(&b, "\x1b[%d;1H\x1b[2K", h)
-	prompt := t.prompt
-	if prompt == "" && t.busy {
-		b.WriteString(color.Paint(color.Sys, "（生成中，Ctrl+C 可中断）"))
+	if t.menu != nil {
+		b.WriteString(color.Paint(color.Sys, "（菜单模式）"))
+	} else if t.prompt == "" && t.busy {
+		b.WriteString(color.Paint(color.Sys, "（生成中，Ctrl+C 可中断 · PgUp 上翻）"))
 	} else {
-		b.WriteString(color.Paint(color.User, prompt))
+		b.WriteString(color.Paint(color.User, t.prompt+t.inputBuf))
 	}
 	b.WriteString("\x1b[?25h")
 	return b.String()
 }
 
-// visibleLines 从最新消息倒推折行，只保留填满可视区所需的尾部行。
-func (t *TUI) visibleLines(width, rows int) []styledLine {
-	var lines []styledLine
-	for i := len(t.entries) - 1; i >= 0 && len(lines) < rows; i-- {
-		e := t.entries[i]
-		wrapped := wrap(e.text, width)
-		chunk := make([]styledLine, len(wrapped))
-		for j, s := range wrapped {
-			chunk[j] = styledLine{style: e.style, text: s}
+func (t *TUI) hintLine(width int) string {
+	if t.menu != nil {
+		return "─ ↑/↓ 选择 · Enter 确认 · Esc 取消 "
+	}
+	if matches := FilterSlashCmds(t.slashCmds, t.inputBuf); len(matches) > 0 {
+		if h := formatSlashHint(matches, width); h != "" {
+			return "─ " + h + " "
 		}
-		lines = append(chunk, lines...)
 	}
-	if len(lines) > rows {
-		lines = lines[len(lines)-rows:]
+	if t.scrollOff > 0 {
+		return fmt.Sprintf("─ ↑ 已上翻 %d 行 · PgDn/↓ 往下 · 输入回到底部 ", t.scrollOff)
 	}
-	return lines
+	return "─ Enter 发送 · 滚轮/PgUp 上翻 · / 命令提示 · Tab 补全 · Ctrl+C 中断 "
+}
+
+// visibleLines 折行后按 scrollOff 取窗口；scrollOff=0 贴底。
+func (t *TUI) visibleLines(width, rows int) []styledLine {
+	var all []styledLine
+	for _, e := range t.entries {
+		wrapped := wrap(e.text, width)
+		for _, s := range wrapped {
+			all = append(all, styledLine{style: e.style, text: s})
+		}
+	}
+	total := len(all)
+	if total == 0 {
+		return nil
+	}
+	maxOff := total - rows
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if t.scrollOff > maxOff {
+		t.scrollOff = maxOff
+	}
+	if t.scrollOff < 0 {
+		t.scrollOff = 0
+	}
+	if total <= rows {
+		return all
+	}
+	end := total - t.scrollOff
+	start := end - rows
+	if start < 0 {
+		start = 0
+	}
+	return all[start:end]
 }
 
 func paint(style, s string) string {
 	if style == "" {
 		return s
+	}
+	if style == "fold" {
+		style = "tool"
 	}
 	return color.Paint(style, s)
 }

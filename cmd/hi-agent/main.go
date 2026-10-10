@@ -23,10 +23,13 @@ import (
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
 type app struct {
-	chat    *chat.Chat
-	mgr     *session.Manager
-	ui      ui
-	workDir string
+	chat     *chat.Chat
+	mgr      *session.Manager
+	ui       ui
+	workDir  string
+	provider string
+	baseURL  string
+	apiKey   string
 
 	busy     atomic.Bool
 	exitOnce sync.Once
@@ -66,7 +69,10 @@ func main() {
 		loadErr = "加载会话失败：" + err.Error() + "，将使用空会话"
 		data = session.NewData()
 	}
-	a := &app{chat: c, mgr: session.NewManager(c, data), workDir: cfg.WorkDir}
+	a := &app{
+		chat: c, mgr: session.NewManager(c, data), workDir: cfg.WorkDir,
+		provider: cfg.Provider, baseURL: cfg.BaseURL, apiKey: cfg.APIKey,
+	}
 
 	in := bufio.NewReader(os.Stdin)
 	a.ui = a.newUI(in)
@@ -78,8 +84,8 @@ func main() {
 		a.ui.Error(loadErr)
 	}
 	a.ui.Info(fmt.Sprintf(
-		"Hi-agent —— 工作目录：%s\n模型：%s · 会话：%s · 输入 /help 查看命令\n文件工具相对当前目录读写；会话落在 .geekagent/",
-		cfg.WorkDir, cfg.Model, a.mgr.Current(),
+		"Hi-agent —— 工作目录：%s\n供应商：%s · 模型：%s · 会话：%s\n接口：%s\n输入 / 展开命令（含 /model 配置模型）；/help 查看帮助",
+		cfg.WorkDir, cfg.Provider, cfg.Model, a.mgr.Current(), cfg.BaseURL,
 	))
 	if len(cfg.EnvFiles) > 0 {
 		a.ui.Info("已加载配置：" + strings.Join(cfg.EnvFiles, " → "))
@@ -88,6 +94,10 @@ func main() {
 	for {
 		line, err := a.ui.ReadLine("You › ")
 		if err != nil {
+			if errors.Is(err, tui.ErrInterrupted) {
+				a.exit()
+				return
+			}
 			break
 		}
 		if line == "" {
@@ -108,14 +118,32 @@ func main() {
 // newUI 默认在终端中启用 TUI；GEEKAGENT_TUI=0 或非终端时用纯文本输出。
 func (a *app) newUI(in *bufio.Reader) ui {
 	if strings.TrimSpace(os.Getenv("GEEKAGENT_TUI")) == "0" || !tui.Supported() {
-		return &plainUI{in: in}
+		return newPlainUI(in)
 	}
 	t := tui.New(in, a.panel)
+	t.SetSlashCommands(slashCommands())
 	if err := t.Start(); err != nil {
 		color.Err(color.Sys, err.Error()+"，改用纯文本模式")
-		return &plainUI{in: in}
+		return newPlainUI(in)
 	}
 	return t
+}
+
+func slashCommands() []tui.SlashCmd {
+	return []tui.SlashCmd{
+		{Name: "/model", Desc: "配置供应商与模型"},
+		{Name: "/help", Desc: "显示帮助"},
+		{Name: "/pwd", Desc: "显示工作目录"},
+		{Name: "/status", Desc: "状态与 tokens"},
+		{Name: "/sessions", Desc: "列出会话"},
+		{Name: "/new", Desc: "新建会话"},
+		{Name: "/open", Desc: "打开会话"},
+		{Name: "/save", Desc: "保存会话"},
+		{Name: "/load", Desc: "重新加载"},
+		{Name: "/reset", Desc: "清空记忆"},
+		{Name: "/compact", Desc: "压缩历史"},
+		{Name: "/exit", Desc: "保存并退出"},
+	}
 }
 
 // panel 每帧向 TUI 提供模型/会话/上下文与用量快照。
@@ -203,10 +231,17 @@ func (a *app) handleCommand(line string) bool {
 	switch cmd {
 	case "/help":
 		a.ui.Info(helpText())
+	case "/", "/commands":
+		return a.cmdMenu()
+	case "/model":
+		a.cmdModel(args)
 	case "/pwd":
 		a.ui.Info("工作目录：" + a.workDir + "\n（ls/read/write/run_shell 均相对此目录；会话：" + session.Path() + "）")
 	case "/status":
-		a.ui.Info("工作目录：" + a.workDir + "\n当前会话：" + mgr.Current() + "\n" + c.Status())
+		a.ui.Info(fmt.Sprintf(
+			"工作目录：%s\n供应商：%s · 模型：%s\n接口：%s\n当前会话：%s\n%s",
+			a.workDir, a.provider, c.Model(), a.baseURL, mgr.Current(), c.Status(),
+		))
 	case "/reset":
 		c.Reset()
 		mgr.SyncFromChat()
@@ -280,6 +315,7 @@ func (a *app) exit() {
 // helpText 返回 /help 文案（含会话路径、已注册工具与相关环境变量）。
 func helpText() string {
 	return fmt.Sprintf(`可用命令：
+  /model             模型配置（↑/↓ 选菜单项，Enter 进入；也可 /model list）
   /help              显示帮助
   /pwd               显示当前工作目录（工具读写基准）
   /status            显示工作目录、会话、tokens 与护栏状态
@@ -293,13 +329,17 @@ func helpText() string {
   /exit              保存并退出（default 有内容时改名为 8 位 ID）
 在任意项目目录执行 hi-agent：读写相对当前目录；会话写入该目录下 .geekagent/。
 API Key：项目 .env、上级目录 .env，或全局 %%USERPROFILE%%\\.hi-agent\\.env（Linux/macOS: ~/.hi-agent/.env）。
+%s
 回复进行中按 Ctrl+C 中断当前轮；空闲时按 Ctrl+C 保存并退出。
 已注册工具：%s
 界面：终端中默认 TUI，GEEKAGENT_TUI=0 使用纯文本。
+输入：敲 / 显示命令提示，Tab 补全；/model 配置模型；滚轮或 PgUp 上翻。
+过程：工具调用与 <think> 思考默认折叠为一行摘要；GEEKAGENT_FOLD=0 展开全文。
 用量：GEEKAGENT_CONTEXT_WINDOW（默认 128000）；GEEKAGENT_STREAM_USAGE=0 关闭流式用量。
 历史超长时自动压缩（GEEKAGENT_MAX_HISTORY，默认 4000 字符）。
 工具轮次上限 GEEKAGENT_MAX_TOOL_TURNS（默认 8）；
 重复熔断 GEEKAGENT_MAX_DUP_TOOLS（默认 3）/ GEEKAGENT_DUP_WINDOW（默认 12）；
 回复预算 GEEKAGENT_MAX_REPLY_CHARS（默认 120000，0=关闭）；
-工具收缩 GEEKAGENT_SHRINK_TOOLS_AFTER（默认约 3/4 轮次起只读，0=关闭）。`, session.Path(), strings.Join(tools.Names(), ", "))
+工具收缩 GEEKAGENT_SHRINK_TOOLS_AFTER（默认约 3/4 轮次起只读，0=关闭）。`,
+		session.Path(), config.ProviderHelp(), strings.Join(tools.Names(), ", "))
 }
