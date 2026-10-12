@@ -24,7 +24,7 @@ type StatusSnapshot struct {
 	ToolTurns, ToolCalls int
 }
 
-// FormatSidebar 生成侧栏纯文本。
+// FormatSidebar 生成侧栏紧凑文案（Codex 向：少字段、非等宽 dump）。
 func (s StatusSnapshot) FormatSidebar() string {
 	state := "空闲"
 	if s.Busy {
@@ -34,12 +34,35 @@ func (s StatusSnapshot) FormatSidebar() string {
 	if s.CtxEstimated && s.CtxTokens > 0 {
 		ctx = "≈" + ctx
 	}
+	win := s.CtxWindow
+	if win <= 0 {
+		win = 0
+	}
+	dir := s.WorkDir
+	if len(dir) > 42 {
+		dir = "…" + dir[len(dir)-40:]
+	}
 	return fmt.Sprintf(
-		"Hi-agent\n\n状态  %s\n模型  %s\n会话  %s\n目录  %s\n\n上下文  %s / %d\n历史    %d / %d 字符\n消息    %d\n\n本轮\n  prompt %d\n  completion %d\n  requests %d\n\n累计\n  prompt %d\n  completion %d\n  requests %d\n\n工具  %d 轮 / %d 次",
-		state, s.Model, s.Session, s.WorkDir,
-		ctx, s.CtxWindow, s.HistChars, s.HistLimit, s.Messages,
-		s.TurnPrompt, s.TurnCompletion, s.TurnRequests,
-		s.CumPrompt, s.CumCompletion, s.CumRequests,
-		s.ToolTurns, s.ToolCalls,
+		"%s\n\n%s\n%s\n%s\n\n上下文  %s / %d\n本轮  %d + %d\n消息 %d",
+		state,
+		emptyDash(s.Model), emptyDash(s.Session), emptyDash(dir),
+		ctx, win,
+		s.TurnPrompt, s.TurnCompletion,
+		s.Messages,
 	)
+}
+
+func emptyDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+// ModelShort 顶栏用模型短名。
+func (s StatusSnapshot) ModelShort() string {
+	if s.Model == "" {
+		return ""
+	}
+	return s.Model
 }

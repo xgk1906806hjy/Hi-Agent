@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,10 @@ type app struct {
 	exitOnce sync.Once
 }
 
+// defaultUI 构建时注入（-ldflags "-X main.defaultUI=gui"），用于双击即开窗口的 GUI 版 exe；
+// 进程环境里已设 GEEKAGENT_UI / HI_AGENT_UI 时以环境为准。
+var defaultUI string
+
 func main() {
 	// 子命令：hi-agent setup-env [path/to/.env]
 	if len(os.Args) > 1 && os.Args[1] == "setup-env" {
@@ -61,8 +66,23 @@ func main() {
 		return
 	}
 
+	applyLaunchDefaults()
+
 	// —— 启动：配置、会话、UI、用量钩子、空闲中断 ——
-	cfg := config.Load()
+	// GUI 可能无控制台：配置缺失时不退出，进窗口后提示 /model。
+	var cfg config.Config
+	cfgErr := ""
+	if ui.ResolveKind() == ui.KindGUI {
+		var err error
+		cfg, err = config.LoadE()
+		if err != nil {
+			cfgErr = "模型未配置：" + err.Error() + "\n请点底部 /model →「切换供应商 / 中转站」填写，并选择写入全局配置。"
+		}
+	} else {
+		cfg = config.Load()
+	}
+	// .env Overload 可能改掉界面变量；GUI 专用包（ldflags 注入了 defaultUI）始终强制进桌面窗。
+	forcePackagedUI()
 	c := chat.New(cfg.BaseURL, cfg.APIKey, cfg.Model)
 
 	data, err := session.Load()
@@ -70,6 +90,9 @@ func main() {
 	if err != nil {
 		loadErr = "加载会话失败：" + err.Error() + "，将使用空会话"
 		data = session.NewData()
+	}
+	if cfgErr != "" {
+		loadErr = strings.TrimSpace(cfgErr + "\n" + loadErr)
 	}
 	a := &app{
 		chat: c, mgr: session.NewManager(c, data), workDir: cfg.WorkDir,
@@ -97,17 +120,45 @@ func main() {
 	a.exit()
 }
 
+// applyLaunchDefaults 处理双击 / 拖放启动：注入构建期默认界面；
+// 首个参数是目录时切换到该目录作为工作区（把文件夹拖到 exe 上、或快捷方式带参数）。
+func applyLaunchDefaults() {
+	forcePackagedUI()
+	if len(os.Args) > 1 {
+		if st, err := os.Stat(os.Args[1]); err == nil && st.IsDir() {
+			_ = os.Chdir(os.Args[1])
+		}
+	}
+}
+
+// forcePackagedUI：scripts/build-gui 注入了 defaultUI=gui 的 exe 始终开桌面窗，
+// 不受 .env / 用户环境里的 GEEKAGENT_UI=tui 影响。普通 hi-agent（无注入）不受影响。
+func forcePackagedUI() {
+	if defaultUI == "" {
+		return
+	}
+	_ = os.Setenv("GEEKAGENT_UI", defaultUI)
+}
+
 // bannerAndLoop 打印启动信息后进入读行主循环。
 func (a *app) bannerAndLoop(cfg config.Config, loadErr string) {
 	if loadErr != "" {
 		a.ui.Error(loadErr)
 	}
-	a.ui.Info(fmt.Sprintf(
-		"Hi-agent —— 工作目录：%s\n供应商：%s · 模型：%s · 会话：%s\n接口：%s\n输入 / 展开命令（含 /model 配置模型）；/help 查看帮助",
-		cfg.WorkDir, cfg.Provider, cfg.Model, a.mgr.Current(), cfg.BaseURL,
-	))
-	if len(cfg.EnvFiles) > 0 {
-		a.ui.Info("已加载配置：" + strings.Join(cfg.EnvFiles, " → "))
+	// GUI：短欢迎，避免把帮助全文灌进聊天区；TUI/plain 仍给稍全的一行摘要。
+	if _, isGUI := a.ui.(ui.DesktopRunner); isGUI {
+		a.ui.Info(fmt.Sprintf(
+			"工作目录 %s · %s / %s · 会话 %s\n输入消息开始对话；点 /model 配置模型，/help 查看帮助。",
+			cfg.WorkDir, cfg.Provider, cfg.Model, a.mgr.Current(),
+		))
+	} else {
+		a.ui.Info(fmt.Sprintf(
+			"Hi-agent —— 工作目录：%s\n供应商：%s · 模型：%s · 会话：%s\n接口：%s\n输入 / 展开命令（含 /model 配置模型）；/help 查看帮助",
+			cfg.WorkDir, cfg.Provider, cfg.Model, a.mgr.Current(), cfg.BaseURL,
+		))
+		if len(cfg.EnvFiles) > 0 {
+			a.ui.Info("已加载配置：" + strings.Join(cfg.EnvFiles, " → "))
+		}
 	}
 	for {
 		line, err := a.ui.ReadLine("You › ")
@@ -138,6 +189,7 @@ func (a *app) newUI(in *bufio.Reader) ui.UI {
 		SlashCommands: slashCommands(),
 		PanelFn:       a.panel,
 		StatusFn:      a.statusSnapshot,
+		NavFn:         a.navSnapshot,
 	})
 	if err != nil {
 		color.Err(color.Sys, err.Error()+"，回退纯文本")
@@ -147,6 +199,84 @@ func (a *app) newUI(in *bufio.Reader) ui.UI {
 		}
 	}
 	return u
+}
+
+// navSnapshot 供 GUI 左侧项目与会话列表。
+func (a *app) navSnapshot() gui.NavSnapshot {
+	paths := gui.LoadProjects()
+	cur := filepath.Clean(a.workDir)
+	has := false
+	for _, p := range paths {
+		if strings.EqualFold(filepath.Clean(p), cur) {
+			has = true
+			break
+		}
+	}
+	if cur != "" && cur != "." && !has {
+		_ = gui.RememberProject(a.workDir)
+		paths = gui.LoadProjects()
+		if len(paths) == 0 {
+			paths = []string{a.workDir}
+		}
+	}
+	var nav gui.NavSnapshot
+	for _, p := range paths {
+		nav.Projects = append(nav.Projects, gui.NavItem{
+			Label:   gui.ProjectName(p),
+			Path:    p,
+			Current: strings.EqualFold(filepath.Clean(p), cur),
+		})
+	}
+	for _, b := range a.mgr.SessionBriefs() {
+		label := b.ID
+		if b.Messages > 0 {
+			label = fmt.Sprintf("%s · %d", b.ID, b.Messages)
+		}
+		nav.Sessions = append(nav.Sessions, gui.NavItem{
+			Label:   label,
+			ID:      b.ID,
+			Current: b.Current,
+		})
+	}
+	return nav
+}
+
+// switchProject 保存当前会话后切换工作目录，并加载该目录下的会话。
+func (a *app) switchProject(path string) {
+	path = strings.Trim(strings.TrimSpace(path), `"'`)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		a.ui.Error(err.Error())
+		return
+	}
+	st, statErr := os.Stat(abs)
+	if statErr != nil || !st.IsDir() {
+		a.ui.Error("不是有效目录：" + abs)
+		return
+	}
+	if strings.EqualFold(filepath.Clean(abs), filepath.Clean(a.workDir)) {
+		a.ui.Info("已在该项目：" + abs)
+		return
+	}
+	if err := a.mgr.Save(); err != nil {
+		a.ui.Error("保存当前会话失败：" + err.Error())
+		return
+	}
+	if err := os.Chdir(abs); err != nil {
+		a.ui.Error("切换目录失败：" + err.Error())
+		return
+	}
+	a.workDir = abs
+	data, loadErr := session.Load()
+	if loadErr != nil {
+		a.ui.Error("加载会话失败：" + loadErr.Error())
+		data = session.NewData()
+	}
+	a.mgr = session.NewManager(a.chat, data)
+	if err := gui.RememberProject(abs); err != nil {
+		a.ui.Error("记录项目失败：" + err.Error())
+	}
+	a.ui.Info("已切换项目：" + abs + "\n当前会话：" + a.mgr.Current())
 }
 
 // statusSnapshot 供 GUI 侧栏刷新（字段与 TUI Panel 对齐）。
@@ -217,7 +347,14 @@ func (a *app) panel() tui.Panel {
 // reply 一轮普通对话：回显 → StreamReply（进度/正文分流）→ 中断不退出。
 func (a *app) reply(line string) {
 	a.ui.UserEcho(line)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := context.WithCancel(sigCtx)
+	defer cancel()
+	canceler, hasStop := a.ui.(ui.Canceler)
+	if hasStop {
+		canceler.SetCancel(cancel)
+		defer canceler.SetCancel(nil)
+	}
 	a.busy.Store(true)
 	a.ui.BeginReply()
 	err := a.chat.StreamReply(ctx, line, func(delta string) {
@@ -293,6 +430,13 @@ func (a *app) handleCommand(line string) bool {
 	case "/compact":
 		a.ui.Notice("[" + c.Compact(context.Background()) + "]")
 		mgr.SyncFromChat()
+	case "/project":
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "/project"))
+		if rest == "" {
+			a.ui.Info("用法：/project <目录>\nGUI 左侧「项目」旁点 + 选择文件夹。")
+			break
+		}
+		a.switchProject(rest)
 	case "/sessions":
 		a.ui.Info(strings.Join(mgr.ListLines(), "\n"))
 	case "/new":
@@ -363,6 +507,7 @@ func helpText() string {
   /help              显示帮助
   /pwd               显示当前工作目录（工具读写基准）
   /status            显示工作目录、会话、tokens 与护栏状态
+  /project <目录>    切换项目（保存当前会话后以该目录为工作区）
   /sessions          列出全部会话（* 为当前）
   /new [id]          新建空会话并切换（可省略 id，自动 8 位）
   /open <id>         切换到已有会话

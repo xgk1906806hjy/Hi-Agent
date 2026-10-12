@@ -136,6 +136,35 @@ set GEEKAGENT_UI=gui && hi-agent
 
 从源码直接运行（不安装）：`go run ./cmd/hi-agent`，界面变量用法同上。
 
+#### 双击运行（桌面版 exe）
+
+不想开终端，可以打包成双击就弹窗口的 exe（没有黑色控制台窗口）：
+
+```powershell
+# Windows，仓库根目录
+.\scripts\build-gui.ps1                         # 生成 dist\Hi-agent.exe
+.\scripts\build-gui.ps1 -Desktop                # 复制到桌面 + 快捷方式
+.\scripts\build-gui.ps1 -Desktop -WorkDir D:\code\myproj   # 快捷方式默认打开指定项目
+```
+
+> **别和终端命令搞混**：在终端敲 `hi-agent` 走的是 PATH 里的**终端版**（默认 TUI）。  
+> 桌面窗请双击 `dist\Hi-agent.exe`、桌面上的 `Hi-agent.exe`，或 `Hi-agent-gui.exe`。
+
+```bash
+# Linux / macOS：生成默认进 GUI 的 dist/hi-agent-gui
+./scripts/build-gui.sh
+```
+
+工作目录（Agent 读写文件的范围）怎么定：
+
+| 启动方式 | 工作目录 |
+|----------|----------|
+| 双击 `Hi-agent.exe` | exe 所在文件夹 |
+| 双击桌面快捷方式 | 快捷方式的「起始位置」（右键 → 属性可改） |
+| 把项目文件夹拖到 exe 上 | 被拖的那个文件夹 |
+
+模型配置仍读 `~/.hi-agent/.env`（先按上文跑过 `setup-env` 即可）。没配置也能打开窗口，按提示点 `/model` 填写并选择写入全局配置即可。exe 可以单独复制到任意位置使用。
+
 ### 4. 使用中
 
 1. 用自然语言提需求（TUI/plain 在 `You ›` 后输入；GUI 在窗口底部输入框输入，点「发送」）。
@@ -150,7 +179,7 @@ set GEEKAGENT_UI=gui && hi-agent
 | 菜单选择（`/model` 等） | ↑/↓ 选择，Enter 确认 | 弹出列表，点选后按「选择」 |
 | 危险操作确认 | 输入 `y` / `n` | 弹窗点「确认」/「取消」 |
 | 查看历史消息 | PgUp/PgDn 或鼠标滚轮 | 聊天区直接滚动 |
-| 中断当前回复 | Ctrl+C | 在启动 GUI 的终端按 Ctrl+C |
+| 中断当前回复 | Ctrl+C | 点输入框旁的「停止」 |
 | 退出 | `/exit` 或空闲 Ctrl+C | `/exit` 或直接关闭窗口 |
 
 退出时都会自动保存会话到 `.geekagent/sessions.json`。
@@ -215,7 +244,7 @@ internal/session/   # 多会话与落盘（项目 .geekagent/）
 internal/tui/       # 轻量全屏界面与面板
 internal/ui/        # UI 抽象工厂（plain / tui / gui）
 internal/gui/       # Fyne 桌面对话壳
-scripts/            # install + setup-env（Windows / Linux）
+scripts/            # install + setup-env + build-gui（Windows / Linux）
 docs/               # 模块功能逻辑 + 改动记录
 doc/                # 按 Day 的开发方案（里程碑）
 openspec/           # 规格驱动变更

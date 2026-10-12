@@ -48,10 +48,17 @@ type Options struct {
 	PanelFn any
 	// StatusFn 仅 GUI 使用，类型应为 func() gui.StatusSnapshot。
 	StatusFn any
+	// NavFn 仅 GUI 使用，类型应为 func() gui.NavSnapshot（左侧项目与会话）。
+	NavFn any
 }
 
 // DesktopRunner 桌面 GUI 需在主线程阻塞 Run；REPL 应放到 goroutine。
 type DesktopRunner interface {
 	UI
 	Run() // 阻塞直到窗口关闭
+}
+
+// Canceler 可选：界面自带「停止」按钮时实现，回复期间由 REPL 注入取消函数，结束后传 nil。
+type Canceler interface {
+	SetCancel(cancel func())
 }

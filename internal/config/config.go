@@ -60,8 +60,24 @@ var dotenvKeys = []string{
 // 2. 快照进程中已存在的相关环境变量
 // 3. 依次 Overload：全局 ~/.hi-agent/.env → 从磁盘根到 cwd 路径上的各 .env（越靠近 cwd 越后，覆盖前者）
 // 4. 还原步骤 2 的快照（保证 shell 里 export 的值最高优先）
-// 5. 填默认值并校验 API Key
+// 5. 填默认值并校验 API Key（失败时写 stderr 并退出）
 func Load() Config {
+	cfg, err := LoadE()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		fmt.Fprintln(os.Stderr, "可任选其一：")
+		fmt.Fprintln(os.Stderr, "  1) 在当前项目放 .env（可参考仓库 .env.example）")
+		fmt.Fprintln(os.Stderr, "  2) 写入用户全局配置：~/.hi-agent/.env")
+		fmt.Fprintln(os.Stderr, "  3) 设置 GEEKAGENT_PROVIDER=deepseek|openai|custom… 与对应密钥")
+		fmt.Fprintln(os.Stderr, "  4) 自定义中转：GEEKAGENT_PROVIDER=custom + OPENAI_BASE_URL + OPENAI_API_KEY")
+		os.Exit(1)
+	}
+	return cfg
+}
+
+// LoadE 同 Load 但不退出：端点解析失败时返回错误，
+// Config 中 WorkDir / EnvFiles 仍有效，端点字段为空（供无控制台的 GUI 进入后再 /model 配置）。
+func LoadE() (Config, error) {
 	workDir, err := os.Getwd()
 	if err != nil {
 		workDir = "."
@@ -74,25 +90,16 @@ func Load() Config {
 	loaded := loadDotEnvCascade(workDir)
 	restoreEnv(preserved)
 
+	cfg := Config{WorkDir: workDir, EnvFiles: loaded}
 	ep, err := ResolveEndpointFromEnv()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		fmt.Fprintln(os.Stderr, "可任选其一：")
-		fmt.Fprintln(os.Stderr, "  1) 在当前项目放 .env（可参考仓库 .env.example）")
-		fmt.Fprintln(os.Stderr, "  2) 写入用户全局配置：~/.hi-agent/.env")
-		fmt.Fprintln(os.Stderr, "  3) 设置 GEEKAGENT_PROVIDER=deepseek|openai|custom… 与对应密钥")
-		fmt.Fprintln(os.Stderr, "  4) 自定义中转：GEEKAGENT_PROVIDER=custom + OPENAI_BASE_URL + OPENAI_API_KEY")
-		os.Exit(1)
+		return cfg, err
 	}
-
-	return Config{
-		Provider: ep.Provider,
-		BaseURL:  ep.BaseURL,
-		APIKey:   ep.APIKey,
-		Model:    ep.Model,
-		WorkDir:  workDir,
-		EnvFiles: loaded,
-	}
+	cfg.Provider = ep.Provider
+	cfg.BaseURL = ep.BaseURL
+	cfg.APIKey = ep.APIKey
+	cfg.Model = ep.Model
+	return cfg, nil
 }
 
 // GlobalEnvPath 返回用户全局配置文件路径（~/.hi-agent/.env）。

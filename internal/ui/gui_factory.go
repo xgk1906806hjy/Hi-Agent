@@ -24,6 +24,14 @@ func createGUI(opts Options) (UI, error) {
 		}
 		statusFn = fn
 	}
+	var navFn func() gui.NavSnapshot
+	if opts.NavFn != nil {
+		fn, ok := opts.NavFn.(func() gui.NavSnapshot)
+		if !ok {
+			return nil, errf("Options.NavFn 须为 func() gui.NavSnapshot")
+		}
+		navFn = fn
+	}
 	slash := make([]gui.SlashItem, 0, len(opts.SlashCommands))
 	for _, c := range opts.SlashCommands {
 		slash = append(slash, gui.SlashItem{Name: c.Name, Desc: c.Desc})
@@ -31,6 +39,7 @@ func createGUI(opts Options) (UI, error) {
 	sh := gui.New(gui.Options{
 		Title:         "Hi-agent",
 		StatusFn:      statusFn,
+		NavFn:         navFn,
 		SlashCommands: slash,
 	})
 	return &guiAdapter{shell: sh}, nil
@@ -43,6 +52,8 @@ type simpleError struct{ s string }
 func (e *simpleError) Error() string { return e.s }
 
 func (a *guiAdapter) Run() { a.shell.Run() }
+
+func (a *guiAdapter) SetCancel(cancel func()) { a.shell.SetCancel(cancel) }
 
 func (a *guiAdapter) Info(s string) {
 	a.shell.AppendSys(s)

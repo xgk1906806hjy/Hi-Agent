@@ -82,6 +82,27 @@ func (m *Manager) Open(id string) error {
 	return nil
 }
 
+// SessionBrief 侧栏用的会话摘要（不从 Chat 回写，避免与流式写入抢 history）。
+type SessionBrief struct {
+	ID       string
+	Messages int
+	Current  bool
+}
+
+// SessionBriefs 列出已落在 Data 里的会话。当前轮尚未 Sync 的消息数可能偏旧。
+func (m *Manager) SessionBriefs() []SessionBrief {
+	ids := m.data.IDs()
+	out := make([]SessionBrief, 0, len(ids))
+	for _, id := range ids {
+		n := 0
+		if rec := m.data.Get(id); rec != nil {
+			n = len(rec.Messages)
+		}
+		out = append(out, SessionBrief{ID: id, Messages: n, Current: id == m.data.Current})
+	}
+	return out
+}
+
 // ListLines 返回供展示的会话列表行（当前会话前缀 *）。
 func (m *Manager) ListLines() []string {
 	m.SyncFromChat()
