@@ -21,18 +21,20 @@ Day 只表示开发里程碑，见 `doc/开发方案-按Day.md`。代码统一�
 | [tools](./tools/) | 工具注册与执行 | `internal/tools/` | 注册表、确认、各工具与 diff 落盘 |
 | [session](./session/) | 多会话内存与落盘 | `internal/session/` | Map、JSON、与 Chat 同步、退出改名 |
 | [tui](./tui/) | 轻量全屏界面与面板 | `internal/tui/` | 左右分栏、用量面板、终端恢复 |
-| [repl](./repl/) | REPL 与斜杠命令 | `cmd/hi-agent/` | 启动、命令表、TUI/纯文本、Ctrl+C |
+| [ui](./ui/) | UI 抽象与工厂（可插拔） | `internal/ui/` | `UI` 接口、Register/Create、Kind |
+| [gui](./gui/) | Fyne 桌面对话壳 | `internal/gui/` | 聊天区、侧栏、Confirm/Select |
+| [repl](./repl/) | REPL 与斜杠命令 | `cmd/hi-agent/` | 启动、命令表、经 ui 工厂创建界面 |
 
 ## 模块依赖（运行时）
 
 ```
 cmd/hi-agent (repl)
- ├── config
- ├── color
- ├── tui ──► color
- ├── session ──► chat
- ├── chat ──► tools
- └── tools（SetConfirm / Names）
+    ├── config
+    ├── color
+    ├── ui ──► plain | tui(──► color) | gui(──► fyne) | web(预留)
+    ├── session ──► chat
+    ├── chat ──► tools
+    └── tools（SetConfirm / Names）
 ```
 
 ## 相关文档

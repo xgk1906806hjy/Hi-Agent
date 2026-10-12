@@ -1,4 +1,4 @@
-package main
+package ui
 
 import (
 	"bufio"
@@ -11,48 +11,40 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
 )
 
-// ui 抽象 REPL 的输出与输入，TUI 与纯文本两种实现。
-type ui interface {
-	Info(s string)
-	Notice(s string)
-	Error(s string)
-	UserEcho(s string)
-	Progress(s string)
-	Model(s string)
-	BeginReply()
-	EndReply()
-	Refresh()
-	ReadLine(prompt string) (string, error)
-	Confirm(prompt string) bool
-	// Select ↑/↓ 选择；取消返回 -1。selected 为初始高亮下标。
-	Select(title string, items []string, selected int) (int, error)
-	Close()
+func init() {
+	Register(KindPlain, func(opts Options) (UI, error) {
+		in := opts.In
+		if in == nil {
+			in = bufio.NewReader(os.Stdin)
+		}
+		return newPlain(in), nil
+	})
 }
 
-// plainUI 非 TUI 时的着色行输出。
-type plainUI struct {
+// plain 纯文本终端 UI（无备用屏）。
+type plain struct {
 	in         *bufio.Reader
 	foldOn     bool
 	think      tui.ThinkStream
 	thinkNoted bool
 }
 
-func newPlainUI(in *bufio.Reader) *plainUI {
-	return &plainUI{in: in, foldOn: tui.FoldEnabled()}
+func newPlain(in *bufio.Reader) *plain {
+	return &plain{in: in, foldOn: tui.FoldEnabled()}
 }
 
-func (p *plainUI) Info(s string)     { color.Out(color.Sys, s, true) }
-func (p *plainUI) Notice(s string)   { color.Out(color.Tool, s, true) }
-func (p *plainUI) Error(s string)    { color.Err(color.Sys, s) }
-func (p *plainUI) UserEcho(string)   {}
-func (p *plainUI) Progress(s string) {
+func (p *plain) Info(s string)   { color.Out(color.Sys, s, true) }
+func (p *plain) Notice(s string) { color.Out(color.Tool, s, true) }
+func (p *plain) Error(s string)  { color.Err(color.Sys, s) }
+func (p *plain) UserEcho(string) {}
+func (p *plain) Progress(s string) {
 	if p.foldOn {
 		color.Out(color.Tool, tui.ShortProgressLine(s), true)
 		return
 	}
 	color.Out(color.Tool, s, false)
 }
-func (p *plainUI) Model(s string) {
+func (p *plain) Model(s string) {
 	if !p.foldOn {
 		color.Out(color.Model, s, false)
 		return
@@ -66,22 +58,22 @@ func (p *plainUI) Model(s string) {
 		color.Out(color.Model, model, false)
 	}
 }
-func (p *plainUI) BeginReply() {
+func (p *plain) BeginReply() {
 	p.think = tui.ThinkStream{}
 	p.thinkNoted = false
 	color.Out(color.Sys, "", true)
 }
-func (p *plainUI) EndReply() { color.Out(color.Sys, "", true) }
-func (p *plainUI) Refresh()  {}
-func (p *plainUI) Close()    {}
+func (p *plain) EndReply() { color.Out(color.Sys, "", true) }
+func (p *plain) Refresh()  {}
+func (p *plain) Close()    {}
 
-func (p *plainUI) ReadLine(prompt string) (string, error) {
+func (p *plain) ReadLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stdout, color.Paint(color.User, prompt))
 	line, err := p.in.ReadString('\n')
 	return strings.TrimSpace(line), err
 }
 
-func (p *plainUI) Confirm(prompt string) bool {
+func (p *plain) Confirm(prompt string) bool {
 	color.Out(color.Tool, prompt+" [y/N] ", false)
 	line, err := p.in.ReadString('\n')
 	if err != nil {
@@ -91,8 +83,7 @@ func (p *plainUI) Confirm(prompt string) bool {
 	return ans == "y" || ans == "yes"
 }
 
-// Select 纯文本回退：打印列表并用序号选择。
-func (p *plainUI) Select(title string, items []string, selected int) (int, error) {
+func (p *plain) Select(title string, items []string, selected int) (int, error) {
 	if len(items) == 0 {
 		return -1, fmt.Errorf("没有可选项")
 	}

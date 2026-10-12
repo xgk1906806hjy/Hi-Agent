@@ -1,5 +1,5 @@
-// hi-agent 进程入口与 REPL：加载配置/会话，接线确认与斜杠命令，驱动 chat.StreamReply。
-// 终端且未设 GEEKAGENT_TUI=0 时启用 TUI，否则纯文本；退出（/exit、EOF、空闲 Ctrl+C）时保存会话并恢复终端。
+// hi-agent 进程入口与 REPL：加载配置/会话，经 ui 工厂创建界面，驱动 chat.StreamReply。
+// UI 可插拔（plain / tui / gui；web 预留）；退出时保存会话并 Close UI。
 package main
 
 import (
@@ -16,16 +16,18 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/config"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/gui"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/ui"
 )
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
 type app struct {
 	chat     *chat.Chat
 	mgr      *session.Manager
-	ui       ui
+	ui       ui.UI
 	workDir  string
 	provider string
 	baseURL  string
@@ -80,6 +82,23 @@ func main() {
 	tools.SetConfirm(a.ui.Confirm)
 	a.watchIdleInterrupt()
 
+	// GUI 须占主线程 Run；REPL 放到 goroutine。
+	if runner, ok := a.ui.(ui.DesktopRunner); ok {
+		go func() {
+			a.bannerAndLoop(cfg, loadErr)
+			a.exit()
+		}()
+		runner.Run()
+		a.exit()
+		return
+	}
+
+	a.bannerAndLoop(cfg, loadErr)
+	a.exit()
+}
+
+// bannerAndLoop 打印启动信息后进入读行主循环。
+func (a *app) bannerAndLoop(cfg config.Config, loadErr string) {
 	if loadErr != "" {
 		a.ui.Error(loadErr)
 	}
@@ -90,12 +109,10 @@ func main() {
 	if len(cfg.EnvFiles) > 0 {
 		a.ui.Info("已加载配置：" + strings.Join(cfg.EnvFiles, " → "))
 	}
-	// —— 主循环：读行 → 斜杠命令 / 普通对话 ——
 	for {
 		line, err := a.ui.ReadLine("You › ")
 		if err != nil {
-			if errors.Is(err, tui.ErrInterrupted) {
-				a.exit()
+			if errors.Is(err, ui.ErrInterrupted) {
 				return
 			}
 			break
@@ -111,26 +128,53 @@ func main() {
 		}
 		a.reply(line)
 	}
-	// —— 退出：EOF 等走到此处 ——
-	a.exit()
 }
 
-// newUI 默认在终端中启用 TUI；GEEKAGENT_TUI=0 或非终端时用纯文本输出。
-func (a *app) newUI(in *bufio.Reader) ui {
-	if strings.TrimSpace(os.Getenv("GEEKAGENT_TUI")) == "0" || !tui.Supported() {
-		return newPlainUI(in)
+// newUI 经抽象工厂创建 UI（GEEKAGENT_UI / HI_AGENT_UI，兼容 GEEKAGENT_TUI=0）。
+func (a *app) newUI(in *bufio.Reader) ui.UI {
+	kind := ui.ResolveKind()
+	u, err := ui.Create(kind, ui.Options{
+		In:            in,
+		SlashCommands: slashCommands(),
+		PanelFn:       a.panel,
+		StatusFn:      a.statusSnapshot,
+	})
+	if err != nil {
+		color.Err(color.Sys, err.Error()+"，回退纯文本")
+		u, err = ui.Create(ui.KindPlain, ui.Options{In: in, SlashCommands: slashCommands()})
+		if err != nil {
+			panic(err)
+		}
 	}
-	t := tui.New(in, a.panel)
-	t.SetSlashCommands(slashCommands())
-	if err := t.Start(); err != nil {
-		color.Err(color.Sys, err.Error()+"，改用纯文本模式")
-		return newPlainUI(in)
-	}
-	return t
+	return u
 }
 
-func slashCommands() []tui.SlashCmd {
-	return []tui.SlashCmd{
+// statusSnapshot 供 GUI 侧栏刷新（字段与 TUI Panel 对齐）。
+func (a *app) statusSnapshot() gui.StatusSnapshot {
+	p := a.panel()
+	return gui.StatusSnapshot{
+		Model:          p.Model,
+		Session:        p.Session,
+		WorkDir:        p.WorkDir,
+		CtxTokens:      p.CtxTokens,
+		CtxEstimated:   p.CtxEstimated,
+		CtxWindow:      p.CtxWindow,
+		HistChars:      p.HistChars,
+		HistLimit:      p.HistLimit,
+		Messages:       p.Messages,
+		TurnPrompt:     p.TurnPrompt,
+		TurnCompletion: p.TurnCompletion,
+		TurnRequests:   p.TurnRequests,
+		CumPrompt:      p.CumPrompt,
+		CumCompletion:  p.CumCompletion,
+		CumRequests:    p.CumRequests,
+		ToolTurns:      p.ToolTurns,
+		ToolCalls:      p.ToolCalls,
+	}
+}
+
+func slashCommands() []ui.SlashCmd {
+	return []ui.SlashCmd{
 		{Name: "/model", Desc: "配置供应商与模型"},
 		{Name: "/help", Desc: "显示帮助"},
 		{Name: "/pwd", Desc: "显示工作目录"},
@@ -332,7 +376,7 @@ API Key：项目 .env、上级目录 .env，或全局 %%USERPROFILE%%\\.hi-agent
 %s
 回复进行中按 Ctrl+C 中断当前轮；空闲时按 Ctrl+C 保存并退出。
 已注册工具：%s
-界面：终端中默认 TUI，GEEKAGENT_TUI=0 使用纯文本。
+界面：GEEKAGENT_UI=tui|plain|gui（默认 tui；web 预留）；GEEKAGENT_TUI=0 兼容为 plain。
 输入：敲 / 显示命令提示，Tab 补全；/model 配置模型；滚轮或 PgUp 上翻。
 过程：工具调用与 <think> 思考默认折叠为一行摘要；GEEKAGENT_FOLD=0 展开全文。
 用量：GEEKAGENT_CONTEXT_WINDOW（默认 128000）；GEEKAGENT_STREAM_USAGE=0 关闭流式用量。

@@ -20,7 +20,7 @@ flowchart TD
   D --> E[cd 到要改的项目目录]
   E --> F[执行 hi-agent]
   F --> G[加载：进程环境 / 项目.env / 全局 ~/.hi-agent/.env]
-  G --> H[以 cwd 为工作区启动 TUI]
+  G --> H[以 cwd 为工作区启动界面：TUI 默认 / plain / GUI 桌面窗]
   H --> I{输入}
   I -->|对话| J[流式回复 + 工具读写/改文件]
   I -->|斜杠命令| K[/pwd /status /sessions …]
@@ -49,6 +49,16 @@ chmod +x ./scripts/install.sh && ./scripts/install.sh
 也可手动：`go install ./cmd/hi-agent`（或 `go install github.com/xgk1906806hjy/Hi-Agent/cmd/hi-agent@latest`），此时需自己保证 `$(go env GOPATH)/bin` 在 PATH 里。
 
 安装脚本跑完后**重开一次终端**，即可直接敲 `hi-agent`。
+
+**编译前置**：桌面 GUI 依赖 [Fyne](https://fyne.io/)（需 CGO），编译时要有 C 编译器：
+
+| 系统 | 需要 |
+|------|------|
+| Windows | gcc（如 [MSYS2](https://www.msys2.org/) 的 `mingw-w64-x86_64-gcc` 或 TDM-GCC），并在 PATH 中 |
+| Linux | `gcc` 与 OpenGL/X11 开发包，如 Debian/Ubuntu：`sudo apt install gcc libgl1-mesa-dev xorg-dev` |
+| macOS | Xcode Command Line Tools：`xcode-select --install` |
+
+首次编译会下载并编译 Fyne，耗时数分钟属正常；之后有缓存会快很多。更新代码后重新执行安装脚本（或 `go install ./cmd/hi-agent`）即可覆盖旧版本。
 
 ### 2. 配置环境变量（填 `.env` + 一键脚本）
 
@@ -93,16 +103,57 @@ cd /path/to/your/project
 hi-agent
 ```
 
-纯文本模式：`GEEKAGENT_TUI=0 hi-agent`
-
 启动后会看到工作目录、模型、会话 ID、已加载的 `.env` 路径。工具读写基准就是**当前 cwd**——先 `cd` 再启动；换项目就退出后换目录再开。
+
+#### 选择界面
+
+用 `GEEKAGENT_UI`（或 `HI_AGENT_UI`）切换，默认 `tui`：
+
+| 值 | 界面 | 说明 |
+|----|------|------|
+| `tui`（默认） | 终端全屏 | 左侧对话、右侧用量面板 |
+| `plain` | 纯文本终端 | 兼容旧变量 `GEEKAGENT_TUI=0` |
+| `gui` | 桌面窗口（Fyne） | 原生窗口，非浏览器；聊天区 + 状态侧栏 + 输入框 |
+
+单次启动指定界面：
+
+```bash
+# Linux / macOS
+GEEKAGENT_UI=gui hi-agent
+```
+
+```powershell
+# Windows PowerShell
+$env:GEEKAGENT_UI="gui"; hi-agent
+```
+
+```bat
+:: Windows cmd
+set GEEKAGENT_UI=gui && hi-agent
+```
+
+想长期使用某个界面，在 `.env` 中写 `GEEKAGENT_UI=gui`，再执行一次 `setup-env` 同步到全局配置即可。
+
+从源码直接运行（不安装）：`go run ./cmd/hi-agent`，界面变量用法同上。
 
 ### 4. 使用中
 
-1. 在 `You ›` 用自然语言提需求。
+1. 用自然语言提需求（TUI/plain 在 `You ›` 后输入；GUI 在窗口底部输入框输入，点「发送」）。
 2. 工具相对当前目录：`ls` / `glob` / `read` / `write` / `patch` / `run_shell`（写文件与 shell 需确认）。
-3. 回复中 **Ctrl+C** 只中断本轮；空闲时 **Ctrl+C** 或 `/exit` 保存并退出。
-4. 斜杠命令见下表。
+3. 斜杠命令见下表；输入 `/` 可展开命令菜单。
+
+各界面的操作差异：
+
+| 操作 | TUI / plain | GUI |
+|------|-------------|-----|
+| 斜杠命令 | 输入 `/`（TUI 支持 Tab 补全） | 输入框输入，或点底部快捷按钮 |
+| 菜单选择（`/model` 等） | ↑/↓ 选择，Enter 确认 | 弹出列表，点选后按「选择」 |
+| 危险操作确认 | 输入 `y` / `n` | 弹窗点「确认」/「取消」 |
+| 查看历史消息 | PgUp/PgDn 或鼠标滚轮 | 聊天区直接滚动 |
+| 中断当前回复 | Ctrl+C | 在启动 GUI 的终端按 Ctrl+C |
+| 退出 | `/exit` 或空闲 Ctrl+C | `/exit` 或直接关闭窗口 |
+
+退出时都会自动保存会话到 `.geekagent/sessions.json`。
 
 ---
 
@@ -110,6 +161,8 @@ hi-agent
 
 | 命令 | 作用 |
 |------|------|
+| `/` | 展开命令菜单 |
+| `/model` | 配置供应商 / 接口地址 / 模型 / Key，可写入全局 `.env` |
 | `/help` | 帮助 |
 | `/pwd` | 显示工作目录与会话文件路径 |
 | `/status` | 工作目录、会话、tokens、护栏状态 |
@@ -146,6 +199,7 @@ hi-agent
 - 工具循环护栏：轮次上限、重复熔断、回复预算、后期只读工具集、强制收尾
 - 多会话持久化：`.geekagent/sessions.json`
 - 轻量 TUI + token 用量面板
+- 桌面 GUI（Fyne）：`GEEKAGENT_UI=gui`
 - 全局 CLI：任意 cwd 启动，分层加载 `.env`
 - 一键环境配置：`setup-env` / `scripts/setup-env.*`
 
@@ -159,6 +213,8 @@ internal/chat/      # 对话、流式、工具循环、压缩、用量
 internal/tools/     # 工具注册与执行（相对 cwd）
 internal/session/   # 多会话与落盘（项目 .geekagent/）
 internal/tui/       # 轻量全屏界面与面板
+internal/ui/        # UI 抽象工厂（plain / tui / gui）
+internal/gui/       # Fyne 桌面对话壳
 scripts/            # install + setup-env（Windows / Linux）
 docs/               # 模块功能逻辑 + 改动记录
 doc/                # 按 Day 的开发方案（里程碑）
