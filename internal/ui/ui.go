@@ -12,9 +12,12 @@ type Kind string
 const (
 	KindPlain Kind = "plain" // 纯文本终端
 	KindTUI   Kind = "tui"   // 轻量全屏 TUI（已实现）
-	KindGUI   Kind = "gui"   // 桌面 GUI（Fyne，已实现）
+	KindGUI   Kind = "gui"   // 桌面 GUI（Wails，需 desktop 构建标签）
 	KindWeb   Kind = "web"   // Web UI（预留）
 )
+
+// MainPrompt REPL 主循环的输入提示；其它提示表示某条命令正在向用户索取参数。
+const MainPrompt = "You › "
 
 // SlashCmd 斜杠命令提示项（各 UI 可选用）。
 type SlashCmd struct {
@@ -46,10 +49,11 @@ type Options struct {
 	SlashCommands []SlashCmd
 	// PanelFn 仅 TUI 使用，类型应为 func() tui.Panel；其它 Kind 忽略。
 	PanelFn any
-	// StatusFn 仅 GUI 使用，类型应为 func() gui.StatusSnapshot。
-	StatusFn any
-	// NavFn 仅 GUI 使用，类型应为 func() gui.NavSnapshot（左侧项目与会话）。
-	NavFn any
+	// StatusFn / NavFn 供桌面界面拉取状态与「项目 > 会话」树；终端界面忽略。
+	StatusFn func() Status
+	NavFn    func() Nav
+	// HistoryFn 当前会话的可展示消息；桌面界面在切换项目/会话后用它重绘。
+	HistoryFn func() []Turn
 }
 
 // DesktopRunner 桌面 GUI 需在主线程阻塞 Run；REPL 应放到 goroutine。

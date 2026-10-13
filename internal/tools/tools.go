@@ -111,8 +111,13 @@ func ToOpenAIAllow(allow []string) []openai.Tool {
 }
 
 // Exec 按名称执行工具；错误与未知工具一律变成字符串返回给模型。
-// 在锁外调用 Run，避免慢工具（如 shell）长时间占用注册表锁。
+// 在注册表锁外调用 Run，避免慢工具（如 shell）长时间占用注册表锁；
+// 先过权限策略（Deny 直接返回、Allow 本次免确认），结果统一脱敏。
 func Exec(name, argsJSON string) string {
+	return redact(execRaw(name, argsJSON))
+}
+
+func execRaw(name, argsJSON string) string {
 	mu.RLock()
 	var tool *Tool
 	for i := range registry {
@@ -132,6 +137,14 @@ func Exec(name, argsJSON string) string {
 	if !json.Valid([]byte(argsJSON)) {
 		return fmt.Sprintf("参数不是合法 JSON：%s", argsJSON)
 	}
+	d := decide(name, argsJSON)
+	if d == Deny {
+		return denied(name)
+	}
+	execMu.Lock()
+	defer execMu.Unlock()
+	preApproved.Store(d == Allow)
+	defer preApproved.Store(false)
 	result, err := tool.Run(argsJSON)
 	if err != nil {
 		return fmt.Sprintf("工具执行失败：%v", err)

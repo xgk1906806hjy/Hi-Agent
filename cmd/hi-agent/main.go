@@ -14,14 +14,17 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sashabaranov/go-openai"
+
 	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/config"
-	"github.com/xgk1906806hjy/Hi-Agent/internal/gui"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/ui"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/workspace"
 )
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
@@ -33,6 +36,7 @@ type app struct {
 	provider string
 	baseURL  string
 	apiKey   string
+	policy   *permission.Policy
 
 	busy     atomic.Bool
 	exitOnce sync.Once
@@ -103,6 +107,9 @@ func main() {
 	a.ui = a.newUI(in)
 	c.SetUsageHook(a.ui.Refresh)
 	tools.SetConfirm(a.ui.Confirm)
+	if err := a.installPermissions(); err != nil {
+		loadErr = strings.TrimSpace(loadErr + "\n权限配置：" + err.Error())
+	}
 	a.watchIdleInterrupt()
 
 	// GUI 须占主线程 Run；REPL 放到 goroutine。
@@ -161,7 +168,7 @@ func (a *app) bannerAndLoop(cfg config.Config, loadErr string) {
 		}
 	}
 	for {
-		line, err := a.ui.ReadLine("You › ")
+		line, err := a.ui.ReadLine(ui.MainPrompt)
 		if err != nil {
 			if errors.Is(err, ui.ErrInterrupted) {
 				return
@@ -190,6 +197,7 @@ func (a *app) newUI(in *bufio.Reader) ui.UI {
 		PanelFn:       a.panel,
 		StatusFn:      a.statusSnapshot,
 		NavFn:         a.navSnapshot,
+		HistoryFn:     a.historySnapshot,
 	})
 	if err != nil {
 		color.Err(color.Sys, err.Error()+"，回退纯文本")
@@ -201,70 +209,74 @@ func (a *app) newUI(in *bufio.Reader) ui.UI {
 	return u
 }
 
-// navSnapshot 供 GUI 左侧项目与会话列表。
-func (a *app) navSnapshot() gui.NavSnapshot {
-	paths := gui.LoadProjects()
+// navSnapshot 供桌面侧栏「项目 > 会话」树。
+func (a *app) navSnapshot() ui.Nav {
+	paths := workspace.Load()
 	cur := filepath.Clean(a.workDir)
 	has := false
 	for _, p := range paths {
-		if strings.EqualFold(filepath.Clean(p), cur) {
+		if workspace.SamePath(p, cur) {
 			has = true
 			break
 		}
 	}
 	if cur != "" && cur != "." && !has {
-		_ = gui.RememberProject(a.workDir)
-		paths = gui.LoadProjects()
+		_ = workspace.Remember(a.workDir)
+		paths = workspace.Load()
 		if len(paths) == 0 {
 			paths = []string{a.workDir}
 		}
 	}
-	var nav gui.NavSnapshot
+	var nav ui.Nav
 	for _, p := range paths {
-		nav.Projects = append(nav.Projects, gui.NavItem{
-			Label:   gui.ProjectName(p),
+		proj := ui.NavProject{
+			Name:    workspace.Name(p),
 			Path:    p,
-			Current: strings.EqualFold(filepath.Clean(p), cur),
-		})
-	}
-	for _, b := range a.mgr.SessionBriefs() {
-		label := b.ID
-		if b.Messages > 0 {
-			label = fmt.Sprintf("%s · %d", b.ID, b.Messages)
+			Current: workspace.SamePath(p, cur),
 		}
-		nav.Sessions = append(nav.Sessions, gui.NavItem{
-			Label:   label,
-			ID:      b.ID,
-			Current: b.Current,
-		})
+		if proj.Current {
+			for _, b := range a.mgr.SessionBriefs() {
+				proj.Sessions = append(proj.Sessions, ui.NavSession{
+					ID: b.ID, Title: b.Title, Messages: b.Messages, UpdatedAt: b.UpdatedAt, Current: b.Current,
+				})
+			}
+		} else {
+			for _, s := range workspace.ListSessions(p) {
+				proj.Sessions = append(proj.Sessions, ui.NavSession{
+					ID: s.ID, Title: s.Title, Messages: s.Messages, UpdatedAt: s.UpdatedAt, Current: s.Current,
+				})
+			}
+		}
+		nav.Projects = append(nav.Projects, proj)
 	}
 	return nav
 }
 
 // switchProject 保存当前会话后切换工作目录，并加载该目录下的会话。
-func (a *app) switchProject(path string) {
+// 返回 false 表示未切换（目录无效或保存失败）；已在该目录返回 true。
+func (a *app) switchProject(path string) bool {
 	path = strings.Trim(strings.TrimSpace(path), `"'`)
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		a.ui.Error(err.Error())
-		return
+		return false
 	}
 	st, statErr := os.Stat(abs)
 	if statErr != nil || !st.IsDir() {
 		a.ui.Error("不是有效目录：" + abs)
-		return
+		return false
 	}
-	if strings.EqualFold(filepath.Clean(abs), filepath.Clean(a.workDir)) {
+	if workspace.SamePath(abs, a.workDir) {
 		a.ui.Info("已在该项目：" + abs)
-		return
+		return true
 	}
 	if err := a.mgr.Save(); err != nil {
 		a.ui.Error("保存当前会话失败：" + err.Error())
-		return
+		return false
 	}
 	if err := os.Chdir(abs); err != nil {
 		a.ui.Error("切换目录失败：" + err.Error())
-		return
+		return false
 	}
 	a.workDir = abs
 	data, loadErr := session.Load()
@@ -273,34 +285,110 @@ func (a *app) switchProject(path string) {
 		data = session.NewData()
 	}
 	a.mgr = session.NewManager(a.chat, data)
-	if err := gui.RememberProject(abs); err != nil {
+	if err := workspace.Remember(abs); err != nil {
 		a.ui.Error("记录项目失败：" + err.Error())
 	}
+	if err := a.reloadPolicy(); err != nil {
+		a.ui.Error("权限配置：" + err.Error())
+	}
 	a.ui.Info("已切换项目：" + abs + "\n当前会话：" + a.mgr.Current())
+	return true
 }
 
-// statusSnapshot 供 GUI 侧栏刷新（字段与 TUI Panel 对齐）。
-func (a *app) statusSnapshot() gui.StatusSnapshot {
+// installPermissions 注入 Day 8 钩子：权限策略、工作区路径检查、输出脱敏。
+// 钩子读取 a 的当前字段，/project 与 /model 之后无需重新注入（策略需 reloadPolicy）。
+func (a *app) installPermissions() error {
+	err := a.reloadPolicy()
+	tools.SetPolicy(func(name, args string) tools.Decision {
+		switch a.policy.Decide(name, args) {
+		case permission.Allow:
+			return tools.Allow
+		case permission.Deny:
+			return tools.Deny
+		default:
+			return tools.Ask
+		}
+	})
+	tools.SetPathGuard(func(p string) (string, error) { return permission.SafePath(a.workDir, p) })
+	tools.SetRedactor(func(s string) string { return permission.Redact(s, a.apiKey) })
+	return err
+}
+
+// reloadPolicy 按当前工作目录重新读取权限配置；损坏时回退默认并返回错误。
+func (a *app) reloadPolicy() error {
+	p, err := permission.Load(a.workDir)
+	a.policy = p
+	return err
+}
+
+// statusSnapshot 供桌面顶栏/状态区刷新。
+func (a *app) statusSnapshot() ui.Status {
 	p := a.panel()
-	return gui.StatusSnapshot{
+	return ui.Status{
 		Model:          p.Model,
+		Provider:       a.provider,
 		Session:        p.Session,
 		WorkDir:        p.WorkDir,
 		CtxTokens:      p.CtxTokens,
 		CtxEstimated:   p.CtxEstimated,
 		CtxWindow:      p.CtxWindow,
-		HistChars:      p.HistChars,
-		HistLimit:      p.HistLimit,
-		Messages:       p.Messages,
 		TurnPrompt:     p.TurnPrompt,
 		TurnCompletion: p.TurnCompletion,
-		TurnRequests:   p.TurnRequests,
-		CumPrompt:      p.CumPrompt,
-		CumCompletion:  p.CumCompletion,
-		CumRequests:    p.CumRequests,
-		ToolTurns:      p.ToolTurns,
-		ToolCalls:      p.ToolCalls,
+		Messages:       p.Messages,
 	}
+}
+
+// historySnapshot 把当前会话里可展示的消息交给桌面界面重绘。
+func (a *app) historySnapshot() []ui.Turn {
+	return historyTurns(a.chat.History())
+}
+
+// toolResultRunes 重绘时每条工具结果保留的字符数。
+const toolResultRunes = 300
+
+// historyTurns 把 messages 转成可展示消息；工具调用按 ToolCallID 配上结果摘要。
+func historyTurns(msgs []openai.ChatCompletionMessage) []ui.Turn {
+	results := map[string]string{}
+	for _, m := range msgs {
+		if m.Role == openai.ChatMessageRoleTool && m.ToolCallID != "" {
+			results[m.ToolCallID] = m.Content
+		}
+	}
+	out := make([]ui.Turn, 0, len(msgs))
+	for _, m := range msgs {
+		switch m.Role {
+		case openai.ChatMessageRoleUser:
+			if strings.TrimSpace(m.Content) != "" {
+				out = append(out, ui.Turn{Role: "user", Text: m.Content})
+			}
+		case openai.ChatMessageRoleAssistant:
+			if strings.TrimSpace(m.Content) != "" {
+				out = append(out, ui.Turn{Role: "assistant", Text: m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				name := tc.Function.Name
+				if name == "" {
+					name = "tool"
+				}
+				text := "[调用工具 " + name + "]"
+				if res, ok := results[tc.ID]; ok {
+					text = "[调用工具 " + name + " → " + clipRunes(strings.Join(strings.Fields(res), " "), toolResultRunes) + "]"
+				}
+				out = append(out, ui.Turn{Role: "tool", Text: text})
+			}
+		case openai.ChatMessageRoleTool:
+			// 工具结果已由过程块概括，不重复灌进对话流。
+		}
+	}
+	return out
+}
+
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 func slashCommands() []ui.SlashCmd {
@@ -309,9 +397,14 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/help", Desc: "显示帮助"},
 		{Name: "/pwd", Desc: "显示工作目录"},
 		{Name: "/status", Desc: "状态与 tokens"},
+		{Name: "/project", Desc: "切换项目目录"},
 		{Name: "/sessions", Desc: "列出会话"},
 		{Name: "/new", Desc: "新建会话"},
 		{Name: "/open", Desc: "打开会话"},
+		{Name: "/rename", Desc: "重命名会话"},
+		{Name: "/delete", Desc: "删除会话"},
+		{Name: "/undo", Desc: "撤销最近一次写文件"},
+		{Name: "/permissions", Desc: "查看工具权限规则"},
 		{Name: "/save", Desc: "保存会话"},
 		{Name: "/load", Desc: "重新加载"},
 		{Name: "/reset", Desc: "清空记忆"},
@@ -452,14 +545,72 @@ func (a *app) handleCommand(line string) bool {
 		a.ui.Info(fmt.Sprintf("（已新建并切换到会话 %s）", newID))
 	case "/open":
 		if len(args) < 1 {
-			a.ui.Info("用法：/open <会话ID>")
+			a.ui.Info("用法：/open <会话ID> [项目目录]")
 			break
+		}
+		if dir := openDirArg(line, args[0]); dir != "" {
+			if !a.switchProject(dir) {
+				break
+			}
+			mgr = a.mgr
 		}
 		if err := mgr.Open(args[0]); err != nil {
 			a.ui.Error(err.Error())
 			break
 		}
 		a.ui.Info(fmt.Sprintf("（已切换到会话 %s）", mgr.Current()))
+	case "/rename":
+		oldID, newID := mgr.Current(), ""
+		switch len(args) {
+		case 1:
+			newID = args[0]
+		case 2:
+			oldID, newID = args[0], args[1]
+		default:
+			a.ui.Info("用法：/rename <新ID> 或 /rename <旧ID> <新ID>")
+		}
+		if newID == "" {
+			break
+		}
+		if err := mgr.Rename(oldID, newID); err != nil {
+			a.ui.Error(err.Error())
+			break
+		}
+		if err := mgr.Save(); err != nil {
+			a.ui.Error("保存失败：" + err.Error())
+			break
+		}
+		a.ui.Info(fmt.Sprintf("（会话 %s 已重命名为 %s）", oldID, newID))
+	case "/delete":
+		if len(args) != 1 {
+			a.ui.Info("用法：/delete <会话ID>")
+			break
+		}
+		if !a.ui.Confirm(fmt.Sprintf("确认删除会话 %s？此操作不可撤销。", args[0])) {
+			a.ui.Info("（已取消）")
+			break
+		}
+		if err := mgr.Delete(args[0]); err != nil {
+			a.ui.Error(err.Error())
+			break
+		}
+		if err := mgr.Save(); err != nil {
+			a.ui.Error("保存失败：" + err.Error())
+			break
+		}
+		a.ui.Info(fmt.Sprintf("（已删除会话 %s，当前会话 %s）", args[0], mgr.Current()))
+	case "/undo":
+		msg, err := tools.UndoLast()
+		if err != nil {
+			a.ui.Error("撤销失败：" + err.Error())
+			break
+		}
+		a.ui.Info("（" + msg + "）")
+	case "/permissions":
+		if err := a.reloadPolicy(); err != nil {
+			a.ui.Error("权限配置：" + err.Error())
+		}
+		a.ui.Info(strings.Join(a.policy.Lines(), "\n"))
 	case "/save":
 		if err := mgr.Save(); err != nil {
 			a.ui.Error("保存失败：" + err.Error())
@@ -481,6 +632,13 @@ func (a *app) handleCommand(line string) bool {
 	}
 	a.ui.Refresh()
 	return false
+}
+
+// openDirArg 取 "/open <id> <目录>" 中 id 之后的整段（目录可含空格）。
+func openDirArg(line, id string) string {
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/open"))
+	rest = strings.TrimSpace(strings.TrimPrefix(rest, id))
+	return strings.Trim(rest, `"'`)
 }
 
 // exit 保存会话、关闭 UI（恢复终端）并打印结果；并发调用只执行一次。
@@ -510,7 +668,11 @@ func helpText() string {
   /project <目录>    切换项目（保存当前会话后以该目录为工作区）
   /sessions          列出全部会话（* 为当前）
   /new [id]          新建空会话并切换（可省略 id，自动 8 位）
-  /open <id>         切换到已有会话
+  /open <id> [目录]  切换到已有会话（带目录时先切项目再打开）
+  /rename [旧] <新>  重命名会话（省略旧 ID 即当前会话）
+  /delete <id>       删除会话（需确认；删当前会话会切到最近的另一个）
+  /undo              撤销最近一次 write/patch（单步，不撤销 shell）
+  /permissions       查看工具权限规则（.geekagent/GeekAgent.json + 内置默认）
   /save              保存全部会话到 %s
   /load              从磁盘重新加载（丢弃未保存改动）
   /reset             清空当前会话记忆

@@ -3,6 +3,9 @@ package session
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
 )
@@ -84,23 +87,93 @@ func (m *Manager) Open(id string) error {
 
 // SessionBrief 侧栏用的会话摘要（不从 Chat 回写，避免与流式写入抢 history）。
 type SessionBrief struct {
-	ID       string
-	Messages int
-	Current  bool
+	ID        string
+	Title     string // 第一条用户消息的开头；无则为空
+	Messages  int
+	UpdatedAt time.Time
+	Current   bool
 }
 
-// SessionBriefs 列出已落在 Data 里的会话。当前轮尚未 Sync 的消息数可能偏旧。
+// titleRunes 会话标题最多取的字符数。
+const titleRunes = 24
+
+// SessionBriefs 列出会话摘要。当前会话的消息数与标题取自 Chat（只读），其余取自 Data。
 func (m *Manager) SessionBriefs() []SessionBrief {
 	ids := m.data.IDs()
 	out := make([]SessionBrief, 0, len(ids))
 	for _, id := range ids {
-		n := 0
+		b := SessionBrief{ID: id, Current: id == m.data.Current}
+		var msgs []openai.ChatCompletionMessage
 		if rec := m.data.Get(id); rec != nil {
-			n = len(rec.Messages)
+			msgs = rec.Messages
+			b.UpdatedAt = rec.UpdatedAt
 		}
-		out = append(out, SessionBrief{ID: id, Messages: n, Current: id == m.data.Current})
+		if b.Current {
+			msgs = m.chat.History()
+		}
+		b.Messages = len(msgs)
+		b.Title = Title(msgs)
+		out = append(out, b)
 	}
 	return out
+}
+
+// Title 取第一条非空用户消息的前 titleRunes 个字符（换行压成空格）。
+func Title(msgs []openai.ChatCompletionMessage) string {
+	for _, m := range msgs {
+		if m.Role != openai.ChatMessageRoleUser {
+			continue
+		}
+		return TitleFromText(m.Content)
+	}
+	return ""
+}
+
+// TitleFromText 把一段用户输入压成侧栏标题。
+func TitleFromText(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > titleRunes {
+		return string(r[:titleRunes]) + "…"
+	}
+	return s
+}
+
+// Rename 重命名会话（当前会话也可改）；新 ID 须合法且未被占用。
+func (m *Manager) Rename(oldID, newID string) error {
+	oldID, newID = strings.TrimSpace(oldID), strings.TrimSpace(newID)
+	if !ValidID(newID) {
+		return fmt.Errorf("非法会话 ID：%s", newID)
+	}
+	m.SyncFromChat()
+	return m.data.Rename(oldID, newID)
+}
+
+// Delete 删除会话。删的是当前会话时切到最近更新的另一个；删完为空则补一个空的 default。
+func (m *Manager) Delete(id string) error {
+	id = strings.TrimSpace(id)
+	if _, ok := m.data.Sessions[id]; !ok {
+		return fmt.Errorf("会话不存在：%s", id)
+	}
+	m.SyncFromChat()
+	delete(m.data.Sessions, id)
+	if m.data.Current != id {
+		return nil
+	}
+	next := ""
+	var latest time.Time
+	for sid, rec := range m.data.Sessions {
+		if next == "" || rec.UpdatedAt.After(latest) {
+			next, latest = sid, rec.UpdatedAt
+		}
+	}
+	if next == "" {
+		next = DefaultID
+		m.data.Ensure(next)
+	}
+	m.data.Current = next
+	m.applyCurrentToChat()
+	return nil
 }
 
 // ListLines 返回供展示的会话列表行（当前会话前缀 *）。

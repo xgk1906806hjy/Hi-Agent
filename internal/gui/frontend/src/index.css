@@ -1,0 +1,170 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "highlight.js/styles/github.css";
+
+@theme {
+  --font-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --color-ink: #1a1a1a;
+  --color-muted: #6b6b6b;
+  --color-line: #e6e6e6;
+  --color-panel: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-accent: #2563eb;
+  --color-accent-soft: #eff6ff;
+  --color-user: #eef4ff;
+  --color-danger: #b91c1c;
+  --color-warn: #92400e;
+}
+
+:root {
+  color-scheme: light dark;
+  --scroll-thumb: #cfcfcf;
+  --scroll-thumb-hover: #b5b5b5;
+  --code-bg: #f4f4f5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ink: #e8e8e6;
+    --color-muted: #9a9a96;
+    --color-line: #2e2e2c;
+    --color-panel: #1b1b1a;
+    --color-surface: #232322;
+    --color-accent: #5b8def;
+    --color-accent-soft: #1e2a40;
+    --color-user: #26324a;
+    --color-danger: #f87171;
+    --color-warn: #fbbf24;
+    --scroll-thumb: #3d3d3b;
+    --scroll-thumb-hover: #52524f;
+    --code-bg: #1a1a19;
+  }
+
+  /* highlight.js github-dark 主要配色，覆盖浅色 github.css */
+  .hljs {
+    color: #c9d1d9;
+    background: transparent;
+  }
+  .hljs-doctag,
+  .hljs-keyword,
+  .hljs-meta .hljs-keyword,
+  .hljs-template-tag,
+  .hljs-template-variable,
+  .hljs-type,
+  .hljs-variable.language_ {
+    color: #ff7b72;
+  }
+  .hljs-title,
+  .hljs-title.class_,
+  .hljs-title.function_ {
+    color: #d2a8ff;
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-literal,
+  .hljs-meta,
+  .hljs-number,
+  .hljs-operator,
+  .hljs-selector-attr,
+  .hljs-selector-class,
+  .hljs-selector-id,
+  .hljs-variable {
+    color: #79c0ff;
+  }
+  .hljs-meta .hljs-string,
+  .hljs-regexp,
+  .hljs-string {
+    color: #a5d6ff;
+  }
+  .hljs-built_in,
+  .hljs-symbol {
+    color: #ffa657;
+  }
+  .hljs-code,
+  .hljs-comment,
+  .hljs-formula {
+    color: #8b949e;
+  }
+  .hljs-name,
+  .hljs-quote,
+  .hljs-selector-pseudo,
+  .hljs-selector-tag {
+    color: #7ee787;
+  }
+  .hljs-subst {
+    color: #c9d1d9;
+  }
+  .hljs-section {
+    color: #1f6feb;
+  }
+  .hljs-bullet {
+    color: #f2cc60;
+  }
+  .hljs-addition {
+    color: #aff5b4;
+    background-color: #033a16;
+  }
+  .hljs-deletion {
+    color: #ffdcd7;
+    background-color: #67060c;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-panel);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}
+
+.prose {
+  --tw-prose-body: var(--color-ink);
+  --tw-prose-headings: var(--color-ink);
+  --tw-prose-bold: var(--color-ink);
+  --tw-prose-code: var(--color-ink);
+  --tw-prose-pre-code: var(--color-ink);
+  --tw-prose-links: var(--color-accent);
+  --tw-prose-bullets: var(--color-muted);
+  --tw-prose-counters: var(--color-muted);
+  --tw-prose-quotes: var(--color-muted);
+  --tw-prose-quote-borders: var(--color-line);
+  --tw-prose-hr: var(--color-line);
+  --tw-prose-th-borders: var(--color-line);
+  --tw-prose-td-borders: var(--color-line);
+}
+.prose :where(pre) {
+  background: var(--code-bg);
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+}
+.prose :where(code) {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+.prose :where(a) {
+  color: var(--color-accent);
+}

@@ -50,15 +50,18 @@ chmod +x ./scripts/install.sh && ./scripts/install.sh
 
 安装脚本跑完后**重开一次终端**，即可直接敲 `hi-agent`。
 
-**编译前置**：桌面 GUI 依赖 [Fyne](https://fyne.io/)（需 CGO），编译时要有 C 编译器：
+**终端版**（`go install` / 安装脚本）只需 Go，不需要 Node 或 C 编译器。
+
+**桌面 GUI 版**（`scripts/build-gui.*`）额外需要：
 
 | 系统 | 需要 |
 |------|------|
-| Windows | gcc（如 [MSYS2](https://www.msys2.org/) 的 `mingw-w64-x86_64-gcc` 或 TDM-GCC），并在 PATH 中 |
-| Linux | `gcc` 与 OpenGL/X11 开发包，如 Debian/Ubuntu：`sudo apt install gcc libgl1-mesa-dev xorg-dev` |
-| macOS | Xcode Command Line Tools：`xcode-select --install` |
+| 通用 | Node 18+（仅打包前端时） |
+| Windows | WebView2（Windows 10/11 通常自带） |
+| Linux | `webkit2gtk` 开发包，如 Debian/Ubuntu：`sudo apt install libwebkit2gtk-4.1-dev` |
+| macOS | Xcode Command Line Tools |
 
-首次编译会下载并编译 Fyne，耗时数分钟属正常；之后有缓存会快很多。更新代码后重新执行安装脚本（或 `go install ./cmd/hi-agent`）即可覆盖旧版本。
+更新代码后重新执行安装脚本（或 `go install ./cmd/hi-agent`）覆盖终端版；桌面版需再跑一次 `build-gui`。
 
 ### 2. 配置环境变量（填 `.env` + 一键脚本）
 
@@ -113,35 +116,18 @@ hi-agent
 |----|------|------|
 | `tui`（默认） | 终端全屏 | 左侧对话、右侧用量面板 |
 | `plain` | 纯文本终端 | 兼容旧变量 `GEEKAGENT_TUI=0` |
-| `gui` | 桌面窗口（Fyne） | 原生窗口，非浏览器；聊天区 + 状态侧栏 + 输入框 |
+| `gui` | 桌面窗口（Wails + React） | 须用 `scripts/build-gui` 打出的桌面版二进制；左侧项目/会话、Markdown 对话流 |
 
-单次启动指定界面：
+终端版二进制不含桌面界面：对它设 `GEEKAGENT_UI=gui` 会提示用 build-gui 构建。桌面版 exe 已通过 ldflags 默认进入 GUI。
 
-```bash
-# Linux / macOS
-GEEKAGENT_UI=gui hi-agent
-```
-
-```powershell
-# Windows PowerShell
-$env:GEEKAGENT_UI="gui"; hi-agent
-```
-
-```bat
-:: Windows cmd
-set GEEKAGENT_UI=gui && hi-agent
-```
-
-想长期使用某个界面，在 `.env` 中写 `GEEKAGENT_UI=gui`，再执行一次 `setup-env` 同步到全局配置即可。
-
-从源码直接运行（不安装）：`go run ./cmd/hi-agent`，界面变量用法同上。
+从源码直接运行终端界面：`go run ./cmd/hi-agent`。
 
 #### 双击运行（桌面版 exe）
 
-不想开终端，可以打包成双击就弹窗口的 exe（没有黑色控制台窗口）：
+不想开终端，可打包成双击就弹窗口的 exe（没有黑色控制台窗口）：
 
 ```powershell
-# Windows，仓库根目录
+# Windows，仓库根目录（需 Node 18+）
 .\scripts\build-gui.ps1                         # 生成 dist\Hi-agent.exe
 .\scripts\build-gui.ps1 -Desktop                # 复制到桌面 + 快捷方式
 .\scripts\build-gui.ps1 -Desktop -WorkDir D:\code\myproj   # 快捷方式默认打开指定项目
@@ -151,7 +137,7 @@ set GEEKAGENT_UI=gui && hi-agent
 > 桌面窗请双击 `dist\Hi-agent.exe`、桌面上的 `Hi-agent.exe`，或 `Hi-agent-gui.exe`。
 
 ```bash
-# Linux / macOS：生成默认进 GUI 的 dist/hi-agent-gui
+# Linux / macOS：生成默认进 GUI 的 dist/hi-agent-gui（需 Node 18+）
 ./scripts/build-gui.sh
 ```
 
@@ -228,7 +214,7 @@ set GEEKAGENT_UI=gui && hi-agent
 - 工具循环护栏：轮次上限、重复熔断、回复预算、后期只读工具集、强制收尾
 - 多会话持久化：`.geekagent/sessions.json`
 - 轻量 TUI + token 用量面板
-- 桌面 GUI（Fyne）：`GEEKAGENT_UI=gui`
+- 桌面 GUI（Wails + React）：`scripts/build-gui` 打包；双击 `dist/Hi-agent.exe`
 - 全局 CLI：任意 cwd 启动，分层加载 `.env`
 - 一键环境配置：`setup-env` / `scripts/setup-env.*`
 
@@ -243,7 +229,8 @@ internal/tools/     # 工具注册与执行（相对 cwd）
 internal/session/   # 多会话与落盘（项目 .geekagent/）
 internal/tui/       # 轻量全屏界面与面板
 internal/ui/        # UI 抽象工厂（plain / tui / gui）
-internal/gui/       # Fyne 桌面对话壳
+internal/gui/       # Wails 桌面对话壳（desktop 标签 + React 前端）
+internal/workspace/ # 项目注册表与会话列表
 scripts/            # install + setup-env + build-gui（Windows / Linux）
 docs/               # 模块功能逻辑 + 改动记录
 doc/                # 按 Day 的开发方案（里程碑）

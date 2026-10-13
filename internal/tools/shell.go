@@ -53,7 +53,7 @@ func runShell(argsJSON string) (string, error) {
 		return "缺少参数 command", nil
 	}
 
-	if !confirm(fmt.Sprintf("即将执行命令：%s", command)) {
+	if !ask(fmt.Sprintf("即将执行命令：%s", command)) {
 		return "已取消执行", nil
 	}
 

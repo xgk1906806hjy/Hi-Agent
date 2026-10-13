@@ -1,0 +1,234 @@
+// Package permission 实现 Day 8 的工具权限策略、工作区路径越界检查与输出脱敏。
+//
+// 本包不依赖 tools：REPL 把 Policy.Decide / SafePath / Redact 包成钩子注入 tools。
+package permission
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Decision 一次工具调用的权限结论。
+type Decision int
+
+const (
+	Ask   Decision = iota // 执行前向用户确认
+	Allow                 // 直接执行（免确认）
+	Deny                  // 拒绝执行
+)
+
+func (d Decision) String() string {
+	switch d {
+	case Allow:
+		return "allow"
+	case Deny:
+		return "deny"
+	default:
+		return "ask"
+	}
+}
+
+// ConfigPath 项目内权限配置文件（相对工作区根）。
+const ConfigPath = ".geekagent/GeekAgent.json"
+
+// Rule 一条规则：Tool 为工具名；Pattern 非空时对参数主体（命令或路径）做通配匹配。
+type Rule struct {
+	Tool    string
+	Pattern string
+}
+
+func (r Rule) String() string {
+	if r.Pattern == "" {
+		return r.Tool
+	}
+	return r.Tool + ":" + r.Pattern
+}
+
+// ParseRule 解析 "tool" 或 "tool:pattern"。
+func ParseRule(s string) Rule {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, ":"); i > 0 {
+		return Rule{Tool: strings.TrimSpace(s[:i]), Pattern: strings.TrimSpace(s[i+1:])}
+	}
+	return Rule{Tool: s}
+}
+
+// Policy 配置规则 + 内置默认。判定顺序：配置 deny > ask > allow，均未命中时用默认。
+type Policy struct {
+	Allow  []Rule
+	AskR   []Rule
+	DenyR  []Rule
+	Source string // 配置文件绝对路径；空表示仅内置默认
+}
+
+// 内置默认：只读工具 allow，会改动环境的工具 ask，其余（含未知工具）deny。
+var (
+	defaultAllow = []string{"get_current_time", "ls", "glob", "read"}
+	defaultAsk   = []string{"run_shell", "write", "patch"}
+)
+
+// Default 只含内置默认的策略。
+func Default() *Policy { return &Policy{} }
+
+type fileConfig struct {
+	Permissions struct {
+		Allow []string `json:"allow"`
+		Ask   []string `json:"ask"`
+		Deny  []string `json:"deny"`
+	} `json:"permissions"`
+}
+
+// Load 读取 root 下的 GeekAgent.json。文件不存在返回默认策略；
+// JSON 损坏时返回默认策略和错误（调用方提示后继续运行）。
+func Load(root string) (*Policy, error) {
+	path := filepath.Join(root, filepath.FromSlash(ConfigPath))
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return Default(), nil
+	}
+	if err != nil {
+		return Default(), err
+	}
+	var cfg fileConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return Default(), fmt.Errorf("解析 %s 失败：%w（已回退默认策略）", path, err)
+	}
+	p := &Policy{Source: path}
+	p.Allow = parseRules(cfg.Permissions.Allow)
+	p.AskR = parseRules(cfg.Permissions.Ask)
+	p.DenyR = parseRules(cfg.Permissions.Deny)
+	return p, nil
+}
+
+func parseRules(in []string) []Rule {
+	out := make([]Rule, 0, len(in))
+	for _, s := range in {
+		if r := ParseRule(s); r.Tool != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Decide 判定一次工具调用。argsJSON 用于取规则匹配的参数主体。
+func (p *Policy) Decide(tool, argsJSON string) Decision {
+	subject := Subject(tool, argsJSON)
+	if p != nil {
+		if matchAny(p.DenyR, tool, subject) {
+			return Deny
+		}
+		if matchAny(p.AskR, tool, subject) {
+			return Ask
+		}
+		if matchAny(p.Allow, tool, subject) {
+			return Allow
+		}
+	}
+	return defaultDecision(tool)
+}
+
+func defaultDecision(tool string) Decision {
+	for _, n := range defaultAllow {
+		if n == tool {
+			return Allow
+		}
+	}
+	for _, n := range defaultAsk {
+		if n == tool {
+			return Ask
+		}
+	}
+	return Deny
+}
+
+// Subject 取规则匹配用的参数：run_shell 取 command，glob 取 pattern，文件类取 path。
+func Subject(tool, argsJSON string) string {
+	var args struct {
+		Command string `json:"command"`
+		Path    string `json:"path"`
+		Pattern string `json:"pattern"`
+	}
+	_ = json.Unmarshal([]byte(argsJSON), &args)
+	switch tool {
+	case "run_shell":
+		return strings.TrimSpace(args.Command)
+	case "glob":
+		return filepath.ToSlash(strings.TrimSpace(args.Pattern))
+	default:
+		return filepath.ToSlash(strings.TrimSpace(args.Path))
+	}
+}
+
+func matchAny(rules []Rule, tool, subject string) bool {
+	for _, r := range rules {
+		if r.Tool != tool && r.Tool != "*" {
+			continue
+		}
+		if r.Pattern == "" || Wildcard(filepath.ToSlash(r.Pattern), subject) {
+			return true
+		}
+	}
+	return false
+}
+
+// Wildcard 简单通配：* 匹配任意串（可跨 /），? 匹配单个字符。
+func Wildcard(pattern, s string) bool {
+	p, t := []rune(pattern), []rune(s)
+	pi, ti, star, mark := 0, 0, -1, 0
+	for ti < len(t) {
+		switch {
+		case pi < len(p) && (p[pi] == '?' || p[pi] == t[ti]):
+			pi++
+			ti++
+		case pi < len(p) && p[pi] == '*':
+			star, mark = pi, ti
+			pi++
+		case star >= 0:
+			pi = star + 1
+			mark++
+			ti = mark
+		default:
+			return false
+		}
+	}
+	for pi < len(p) && p[pi] == '*' {
+		pi++
+	}
+	return pi == len(p)
+}
+
+// Lines 供 /permissions 展示当前生效规则与来源。
+func (p *Policy) Lines() []string {
+	var out []string
+	if p != nil && p.Source != "" {
+		out = append(out, "配置文件："+p.Source)
+		out = append(out, "  deny： "+joinRules(p.DenyR))
+		out = append(out, "  ask：  "+joinRules(p.AskR))
+		out = append(out, "  allow："+joinRules(p.Allow))
+	} else {
+		out = append(out, "配置文件：无（可在 "+ConfigPath+" 中配置 permissions.allow/ask/deny）")
+	}
+	out = append(out,
+		"内置默认（配置未命中时）：",
+		"  allow："+strings.Join(defaultAllow, ", "),
+		"  ask：  "+strings.Join(defaultAsk, ", "),
+		"  其余工具（含未知工具）：deny",
+		"优先级：配置 deny > ask > allow > 内置默认；规则写法 工具名 或 工具名:通配（* 任意串，? 单字符）",
+	)
+	return out
+}
+
+func joinRules(rs []Rule) string {
+	if len(rs) == 0 {
+		return "（无）"
+	}
+	s := make([]string, len(rs))
+	for i, r := range rs {
+		s[i] = r.String()
+	}
+	return strings.Join(s, ", ")
+}

@@ -16,8 +16,11 @@ var (
 )
 
 func init() {
-	// plain / tui / gui 在各自文件的 init 中 Register。
-	// web 预留：显式注册「未实现」，避免拼写错误时静默失败。
+	// plain / tui 在各自文件的 init 中 Register。
+	// gui 由 internal/gui（desktop 构建标签）在 init 中覆盖本占位。
+	Register(KindGUI, func(Options) (UI, error) {
+		return nil, fmt.Errorf("当前程序是终端版，不含桌面界面；请用 scripts/build-gui 构建桌面版")
+	})
 	Register(KindWeb, notImplemented(KindWeb))
 }
 

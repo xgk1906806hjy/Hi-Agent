@@ -1,4 +1,5 @@
-﻿# 打包双击即开的桌面 GUI 版：dist\Hi-agent.exe（无控制台黑窗）。
+﻿# 打包双击即开的桌面 GUI 版（Wails + React）：dist\Hi-agent.exe（无控制台黑窗）。
+# 前置：Node 18+（仅本脚本打包时需要）；Windows 10/11 自带 WebView2。
 # 用法（仓库根目录）：
 #   .\scripts\build-gui.ps1                      # 只生成 exe
 #   .\scripts\build-gui.ps1 -Desktop             # 复制到桌面并建快捷方式
@@ -13,12 +14,32 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+$fe = Join-Path $root "internal\gui\frontend"
+if (-not (Test-Path (Join-Path $fe "package.json"))) {
+    Write-Error "missing frontend: $fe"
+}
+
+Write-Host "Building frontend ..."
+Push-Location $fe
+try {
+    if (Test-Path "package-lock.json") {
+        npm ci
+    } else {
+        npm install
+    }
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    npm run build
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Pop-Location
+}
+
 $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $exe = Join-Path $dist "Hi-agent.exe"
 
 Write-Host "Building $exe ..."
-go build -ldflags "-s -w -H=windowsgui -X main.defaultUI=gui" -o $exe ./cmd/hi-agent
+go build -tags "desktop,production" -ldflags "-s -w -H=windowsgui -X main.defaultUI=gui" -o $exe ./cmd/hi-agent
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "OK: $exe"
 

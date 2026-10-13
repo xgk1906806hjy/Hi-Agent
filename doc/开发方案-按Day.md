@@ -171,7 +171,32 @@ Hi-agent/
 
 ## 6. 当前进度
 
-**已完成：Day 1–7**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量）。  
+**已完成：Day 1–8**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚）。  
 工具循环护栏（轮次 / 重复熔断 / 预算 / 收缩）已作为横切能力落地。  
+另：Wails 桌面 GUI（项目 > 会话侧栏、会话标题/时间、重命名/删除、斜杠补全、深色模式）与 `workspace` 项目注册表已落地。
 
-**下一步：Day 8**（权限 allow/ask/deny、路径越界、密钥脱敏、`/undo`），在现有 `internal/` 上增量实现，不新建 day 目录。
+Day 8 的 Go 落地方式（对照原 TS 方案）：
+
+| 原方案 | Go 实现 |
+|--------|---------|
+| `permissions.ts` | `internal/permission`：`Load`（`.geekagent/GeekAgent.json`）、`Decide`、`SafePath`、`Redact` |
+| 接入工具 | `tools.SetPolicy` / `SetPathGuard` / `SetRedactor` 钩子（tools 不依赖 permission，由 REPL 注入） |
+| `undo.ts` | `tools.UndoLast` + `.geekagent/undo.json`（单步） |
+| 命令 | `/undo`、`/permissions` |
+
+**下一步：Day 9**，按下方路线图推进。
+
+## 7. Day 9–16 路线图（Go 落地规划）
+
+每个 Day 单独走 OpenSpec propose，按「新增模块 + tools 注册 + REPL 命令 + GUI 展示」四件套推进；新工具必须补进 `permission` 默认策略表（横切约定 2）。
+
+| Day | 新模块 / 文件 | 工具 | 命令 | 界面 |
+|-----|---------------|------|------|------|
+| 9 | `internal/plan`（TODO 状态，同时最多一项 in_progress）；`delegate_task` 用独立 `chat.Chat`（无工具、干净 history） | `todo_write`、`delegate_task` | — | TUI 右栏、GUI 侧栏显示 TODO 进度 |
+| 10 | 每轮把 `AGENTS.md` 拼进 system；`internal/memory` → `.geekagent/memory.json` | `memory_write`、`memory_search` | `/memory` | — |
+| 11 | `internal/skills` 扫描 `skills/*/SKILL.md`，动态增减 system 片段与工具白名单 | 按 skill 声明 | `/use` `/unuse` `/skills` | GUI 显示已加载 skill |
+| 12 | `search`（路径:行号，纯 Go）、`fetch`（去 HTML 标签） | `search`、`fetch`（默认 ask） | — | — |
+| 13 | memory 切块 + BM25，每轮提问前自动取 Top5 进 system | — | — | — |
+| 14 | `internal/rag`，索引 `.geekagent/rag/index.json`，回答附来源段号 | `rag_add`、`rag_search` | `/rag` | — |
+| 15 | `internal/mcp`：stdio 客户端，读 `.geekagent/mcp.json`，注册 `mcp_<server>_<tool>`；权限走 Day 8（未知默认 deny） | 动态 | `/mcp` | GUI 显示连接状态 |
+| 16 | 插件框架：编译期注册 `plugins/*` 代替 TS 动态加载，`onStart` / `onExit` + 插件命令表；顺带落地 `KindWeb`（SSE），复用 GUI 协议与前端 | 插件声明 | `/plugins` | Web 模式 |

@@ -22,13 +22,10 @@ func TestRegisterAndCreatePlain(t *testing.T) {
 	u.Close()
 }
 
-func TestKindGUIFactoryRegistered(t *testing.T) {
-	// 不 Create 真实 Fyne 窗口（无头/CI 可能无显示）；只确认工厂已注册。
-	mu.RLock()
-	fn, ok := factories[KindGUI]
-	mu.RUnlock()
-	if !ok || fn == nil {
-		t.Fatal("KindGUI factory not registered")
+func TestKindGUIPlaceholderWithoutDesktop(t *testing.T) {
+	// 未带 desktop 标签时 gui 只有占位工厂，应给出明确错误而非未注册。
+	if _, err := Create(KindGUI, Options{}); err == nil {
+		t.Fatal("expected placeholder error")
 	}
 }
 

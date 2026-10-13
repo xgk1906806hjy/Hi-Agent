@@ -108,7 +108,11 @@ func runLs(argsJSON string) (string, error) {
 	if path == "" {
 		path = "."
 	}
-	entries, err := os.ReadDir(path)
+	safe, err := guard(path)
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(safe)
 	if err != nil {
 		return "", err
 	}
@@ -231,7 +235,11 @@ func runRead(argsJSON string) (string, error) {
 	if path == "" {
 		return "缺少参数 path", nil
 	}
-	data, err := os.ReadFile(path)
+	safe, err := guard(path)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(safe)
 	if err != nil {
 		return "", err
 	}
@@ -269,11 +277,15 @@ func runWrite(argsJSON string) (string, error) {
 	if path == "" {
 		return "缺少参数 path", nil
 	}
-	ok, msg := commitWrite(path, args.Content)
+	safe, err := guard(path)
+	if err != nil {
+		return "", err
+	}
+	ok, msg := commitWrite(path, safe, args.Content)
 	if !ok {
 		return msg, nil
 	}
-	return fmt.Sprintf("已写入 %s（%d 字符）", path, len([]rune(args.Content))), nil
+	return withNote(fmt.Sprintf("已写入 %s（%d 字符）", path, len([]rune(args.Content))), msg), nil
 }
 
 // hunk 表示一处「唯一原文 → 新文」替换。
@@ -298,7 +310,11 @@ func runPatch(argsJSON string) (string, error) {
 	if len(args.Hunks) == 0 {
 		return "缺少参数 hunks", nil
 	}
-	data, err := os.ReadFile(path)
+	safe, err := guard(path)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(safe)
 	if err != nil {
 		return "", err
 	}
@@ -316,15 +332,23 @@ func runPatch(argsJSON string) (string, error) {
 		}
 		content = strings.Replace(content, h.Old, h.New, 1)
 	}
-	ok, msg := commitWrite(path, content)
+	ok, msg := commitWrite(path, safe, content)
 	if !ok {
 		return msg, nil
 	}
-	return fmt.Sprintf("已应用 %d 处修改到 %s", len(args.Hunks), path), nil
+	return withNote(fmt.Sprintf("已应用 %d 处修改到 %s", len(args.Hunks), path), msg), nil
 }
 
-// commitWrite：读旧内容 → 未变则跳过 → simpleDiff → confirm → MkdirAll → WriteFile。
-func commitWrite(path, next string) (ok bool, message string) {
+func withNote(s, note string) string {
+	if note == "" {
+		return s
+	}
+	return s + "（" + note + "）"
+}
+
+// commitWrite：读旧内容 → 未变则跳过 → simpleDiff → 确认 → 记录撤销点 → MkdirAll → WriteFile。
+// display 用于提示文案，path 为经路径检查后的实际路径。成功时 message 为附加说明（可空）。
+func commitWrite(display, path, next string) (ok bool, message string) {
 	var oldtxt string
 	existing := true
 	data, err := os.ReadFile(path)
@@ -341,9 +365,13 @@ func commitWrite(path, next string) (ok bool, message string) {
 		return true, "内容未变化"
 	}
 	diff := simpleDiff(oldtxt, next)
-	prompt := fmt.Sprintf("\n%s\n确认写入 %s？", diff, path)
-	if !confirm(prompt) {
+	prompt := fmt.Sprintf("\n%s\n确认写入 %s？", diff, display)
+	if !ask(prompt) {
 		return false, "已取消写入"
+	}
+	note := ""
+	if err := saveUndo(path, existing, oldtxt); err != nil {
+		note = "未能记录撤销点：" + err.Error()
 	}
 	// 父目录为「.」时 MkdirAll 失败可忽略（当前目录已存在）。
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
@@ -352,7 +380,7 @@ func commitWrite(path, next string) (ok bool, message string) {
 	if err := os.WriteFile(path, []byte(next), 0o644); err != nil {
 		return false, err.Error()
 	}
-	return true, ""
+	return true, note
 }
 
 // simpleDiff 去掉公共前后缀行后，输出 -旧 / +新；超过 maxDiffLines 截断。
