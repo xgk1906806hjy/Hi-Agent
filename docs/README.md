@@ -25,6 +25,7 @@ Day 只表示开发里程碑，见 `doc/开发方案-按Day.md`。代码统一�
 | [gui](./gui/) | Wails 桌面对话壳 | `internal/gui/` | 协议、Adapter、React 前端（desktop 标签） |
 | [workspace](./workspace/) | 项目注册表与会话列表 | `internal/workspace/` | `projects.json`、`ListSessions` |
 | [permission](./permission/) | 工具权限、路径越界、脱敏（Day 8） | `internal/permission/` | `GeekAgent.json` 规则、`SafePath`、`Redact` |
+| [plan](./plan/) | 任务清单（Day 9） | `internal/plan/` | `todo_write`，同时最多一项 in_progress |
 | [repl](./repl/) | REPL 与斜杠命令 | `cmd/hi-agent/` | 启动、命令表、经 ui 工厂创建界面 |
 
 ## 模块依赖（运行时）
@@ -38,6 +39,7 @@ cmd/hi-agent (repl)
     ├── session ──► chat
     ├── chat ──► tools
     ├── permission（Load / SafePath / Redact → 注入 tools 钩子）
+    ├── plan（任务清单；todo_write 写入，界面只读）
     └── tools（SetConfirm / SetPolicy / SetPathGuard / SetRedactor / UndoLast）
 ```
 

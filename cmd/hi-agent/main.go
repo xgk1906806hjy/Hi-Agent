@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/config"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
@@ -29,14 +31,17 @@ import (
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
 type app struct {
-	chat     *chat.Chat
-	mgr      *session.Manager
-	ui       ui.UI
-	workDir  string
-	provider string
-	baseURL  string
-	apiKey   string
-	policy   *permission.Policy
+	chat         *chat.Chat
+	mgr          *session.Manager
+	ui           ui.UI
+	workDir      string
+	provider     string
+	baseURL      string
+	apiKey       string
+	policy       *permission.Policy
+	policyAt     time.Time
+	policyExists bool
+	policyErr    string
 
 	busy     atomic.Bool
 	exitOnce sync.Once
@@ -107,6 +112,9 @@ func main() {
 	a.ui = a.newUI(in)
 	c.SetUsageHook(a.ui.Refresh)
 	tools.SetConfirm(a.ui.Confirm)
+	tools.SetDelegator(func(ctx context.Context, task string) (string, error) {
+		return a.chat.Delegate(ctx, task)
+	})
 	if err := a.installPermissions(); err != nil {
 		loadErr = strings.TrimSpace(loadErr + "\n权限配置：" + err.Error())
 	}
@@ -288,6 +296,7 @@ func (a *app) switchProject(path string) bool {
 	if err := workspace.Remember(abs); err != nil {
 		a.ui.Error("记录项目失败：" + err.Error())
 	}
+	plan.Reset()
 	if err := a.reloadPolicy(); err != nil {
 		a.ui.Error("权限配置：" + err.Error())
 	}
@@ -300,6 +309,7 @@ func (a *app) switchProject(path string) bool {
 func (a *app) installPermissions() error {
 	err := a.reloadPolicy()
 	tools.SetPolicy(func(name, args string) tools.Decision {
+		a.ensurePolicy()
 		switch a.policy.Decide(name, args) {
 		case permission.Allow:
 			return tools.Allow
@@ -318,12 +328,56 @@ func (a *app) installPermissions() error {
 func (a *app) reloadPolicy() error {
 	p, err := permission.Load(a.workDir)
 	a.policy = p
+	a.notePolicyFile()
 	return err
+}
+
+// ensurePolicy 在配置文件的修改时间变化时重新加载。损坏时只提示一次。
+func (a *app) ensurePolicy() {
+	path := filepath.Join(a.workDir, filepath.FromSlash(permission.ConfigPath))
+	st, err := os.Stat(path)
+	exists := err == nil
+	var at time.Time
+	if exists {
+		at = st.ModTime()
+	}
+	if a.policy != nil && exists == a.policyExists && at.Equal(a.policyAt) {
+		return
+	}
+	if loadErr := a.reloadPolicy(); loadErr != nil && loadErr.Error() != a.policyErr {
+		a.policyErr = loadErr.Error()
+		a.ui.Error("权限配置：" + loadErr.Error())
+		return
+	}
+	if err == nil || os.IsNotExist(err) {
+		a.policyErr = ""
+	}
+}
+
+func (a *app) notePolicyFile() {
+	path := filepath.Join(a.workDir, filepath.FromSlash(permission.ConfigPath))
+	st, err := os.Stat(path)
+	a.policyExists = err == nil
+	if a.policyExists {
+		a.policyAt = st.ModTime()
+	} else {
+		a.policyAt = time.Time{}
+	}
 }
 
 // statusSnapshot 供桌面顶栏/状态区刷新。
 func (a *app) statusSnapshot() ui.Status {
+	a.ensurePolicy()
 	p := a.panel()
+	todos := plan.List()
+	uiTodos := make([]ui.Todo, len(todos))
+	for i, t := range todos {
+		uiTodos[i] = ui.Todo{ID: t.ID, Content: t.Content, Status: t.Status}
+	}
+	policyLines := []string{}
+	if a.policy != nil {
+		policyLines = a.policy.Lines()
+	}
 	return ui.Status{
 		Model:          p.Model,
 		Provider:       a.provider,
@@ -335,6 +389,8 @@ func (a *app) statusSnapshot() ui.Status {
 		TurnPrompt:     p.TurnPrompt,
 		TurnCompletion: p.TurnCompletion,
 		Messages:       p.Messages,
+		Policy:         policyLines,
+		Todos:          uiTodos,
 	}
 }
 
@@ -434,6 +490,7 @@ func (a *app) panel() tui.Panel {
 		CumRequests:    u.Cumulative.Requests,
 		ToolTurns:      u.LastToolTurns,
 		ToolCalls:      u.LastToolCalls,
+		Todos:          plan.Lines(),
 	}
 }
 

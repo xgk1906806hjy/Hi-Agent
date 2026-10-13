@@ -16,6 +16,16 @@ type Status struct {
 	TurnPrompt     int
 	TurnCompletion int
 	Messages       int
+
+	Policy []string // 当前权限规则说明，供桌面界面展示
+	Todos  []Todo   // 当前任务清单；空表示没有
+}
+
+// Todo 一条任务（Day 9），由 REPL 从 plan 模块填入。
+type Todo struct {
+	ID      string
+	Content string
+	Status  string
 }
 
 // Nav 左侧「项目 > 会话」树。

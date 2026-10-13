@@ -25,6 +25,7 @@ func inTempDir(t *testing.T) string {
 		SetPathGuard(nil)
 		SetRedactor(nil)
 		SetConfirm(nil)
+		SetDelegator(nil)
 	})
 	return dir
 }

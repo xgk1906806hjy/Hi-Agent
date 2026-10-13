@@ -171,7 +171,7 @@ Hi-agent/
 
 ## 6. 当前进度
 
-**已完成：Day 1–8**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚）。  
+**已完成：Day 1–9**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚、任务清单与子任务委派）。  
 工具循环护栏（轮次 / 重复熔断 / 预算 / 收缩）已作为横切能力落地。  
 另：Wails 桌面 GUI（项目 > 会话侧栏、会话标题/时间、重命名/删除、斜杠补全、深色模式）与 `workspace` 项目注册表已落地。
 
@@ -184,7 +184,7 @@ Day 8 的 Go 落地方式（对照原 TS 方案）：
 | `undo.ts` | `tools.UndoLast` + `.geekagent/undo.json`（单步） |
 | 命令 | `/undo`、`/permissions` |
 
-**下一步：Day 9**，按下方路线图推进。
+**下一步：Day 10**（`AGENTS.md` 入每轮 system、`memory_write` / `memory_search`），按下方路线图推进。
 
 ## 7. Day 9–16 路线图（Go 落地规划）
 
@@ -192,7 +192,7 @@ Day 8 的 Go 落地方式（对照原 TS 方案）：
 
 | Day | 新模块 / 文件 | 工具 | 命令 | 界面 |
 |-----|---------------|------|------|------|
-| 9 | `internal/plan`（TODO 状态，同时最多一项 in_progress）；`delegate_task` 用独立 `chat.Chat`（无工具、干净 history） | `todo_write`、`delegate_task` | — | TUI 右栏、GUI 侧栏显示 TODO 进度 |
+| 9（已完成） | `internal/plan`（内存清单，同时最多一项 in_progress）；`chat.Delegate` 独立 history、无工具 | `todo_write`、`delegate_task`（默认 allow） | — | TUI 右栏、GUI 侧栏 |
 | 10 | 每轮把 `AGENTS.md` 拼进 system；`internal/memory` → `.geekagent/memory.json` | `memory_write`、`memory_search` | `/memory` | — |
 | 11 | `internal/skills` 扫描 `skills/*/SKILL.md`，动态增减 system 片段与工具白名单 | 按 skill 声明 | `/use` `/unuse` `/skills` | GUI 显示已加载 skill |
 | 12 | `search`（路径:行号，纯 Go）、`fetch`（去 HTML 标签） | `search`、`fetch`（默认 ask） | — | — |

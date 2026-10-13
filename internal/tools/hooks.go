@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,10 @@ var (
 	// 只有同一时刻至多一个工具在执行时才成立（chat 工具循环本就顺序执行）。
 	execMu      sync.Mutex
 	preApproved atomic.Bool
+
+	// callCtx 是当前 ExecContext 的上下文，仅在 execMu 持有期间有效。
+	callCtx   context.Context
+	delegator func(context.Context, string) (string, error)
 )
 
 // SetPolicy 注入权限策略；nil 表示一律 Ask。
@@ -44,6 +49,19 @@ func SetPathGuard(fn PathGuardFn) { hookMu.Lock(); pathGuard = fn; hookMu.Unlock
 
 // SetRedactor 注入脱敏；nil 表示原样输出。
 func SetRedactor(fn RedactFn) { hookMu.Lock(); redactor = fn; hookMu.Unlock() }
+
+// SetDelegator 注入子任务委派。delegate_task 用当前 Exec 的上下文调用它；nil 时工具返回「委派未配置」。
+func SetDelegator(fn func(context.Context, string) (string, error)) {
+	hookMu.Lock()
+	delegator = fn
+	hookMu.Unlock()
+}
+
+func currentDelegator() func(context.Context, string) (string, error) {
+	hookMu.RLock()
+	defer hookMu.RUnlock()
+	return delegator
+}
 
 func decide(name, argsJSON string) Decision {
 	hookMu.RLock()

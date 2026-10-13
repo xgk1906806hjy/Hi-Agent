@@ -24,6 +24,8 @@ type Panel struct {
 	CumPrompt, CumCompletion, CumRequests    int
 
 	ToolTurns, ToolCalls int
+
+	Todos []string // 任务清单行；空则面板不显示这一段
 }
 
 // styledLine 一行带样式标签的纯文本（颜色在渲染阶段套用）。
@@ -76,9 +78,14 @@ func panelLines(p Panel, width int) []styledLine {
 		{"user", "累计 tokens"},
 		{"sys", fmt.Sprintf("输入 %s  输出 %s", fmtTokens(p.CumPrompt), fmtTokens(p.CumCompletion))},
 		{"sys", fmt.Sprintf("合计 %s（%d 次）", fmtTokens(p.CumPrompt+p.CumCompletion), p.CumRequests)},
-		{"", ""},
-		{"sys", "/help 命令  Ctrl+C 中断"},
 	}
+	if len(p.Todos) > 0 {
+		lines = append(lines, styledLine{"", ""}, styledLine{"user", "任务"})
+		for _, t := range p.Todos {
+			lines = append(lines, styledLine{"sys", t})
+		}
+	}
+	lines = append(lines, styledLine{"", ""}, styledLine{"sys", "/help 命令  Ctrl+C 中断"})
 	return lines
 }
 

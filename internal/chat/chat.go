@@ -270,7 +270,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 					continue
 				}
 
-				result := tools.Exec(tc.Function.Name, tc.Function.Arguments)
+				result := tools.ExecContext(ctx, tc.Function.Name, tc.Function.Arguments)
 				c.lastTools++
 				replyChars += utf8.RuneCountInString(result)
 				c.lastChars = replyChars
@@ -467,6 +467,32 @@ func (c *Chat) Status() string {
 		shrunkNote,
 		reason,
 	)
+}
+
+const delegateSystem = "你是子任务执行者。只根据这一次任务作答，不要调用工具，也不要假设存在其它对话上下文。回答尽量短而完整。"
+
+// Delegate 用同一套端点与模型完成一个子任务。独立 history、不带工具，不改动当前对话。
+// 用量计入累计与本轮，不刷新上下文占用（子任务不进入主 history）。
+func (c *Chat) Delegate(ctx context.Context, task string) (string, error) {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return "", fmt.Errorf("任务为空")
+	}
+	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: c.model,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: delegateSystem},
+			{Role: openai.ChatMessageRoleUser, Content: task},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	c.recordUsage(&resp.Usage, false)
+	if len(resp.Choices) == 0 {
+		return "(子任务无输出)", nil
+	}
+	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
 }
 
 // History 返回当前 history 的深拷贝（供会话持久化）。

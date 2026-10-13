@@ -67,7 +67,7 @@ type Policy struct {
 
 // 内置默认：只读工具 allow，会改动环境的工具 ask，其余（含未知工具）deny。
 var (
-	defaultAllow = []string{"get_current_time", "ls", "glob", "read"}
+	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "todo_write", "delegate_task"}
 	defaultAsk   = []string{"run_shell", "write", "patch"}
 )
 

@@ -5,6 +5,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -14,10 +15,10 @@ import (
 
 // Tool 工具最小抽象：给模型看的说明书 + 本地执行函数。
 type Tool struct {
-	Name        string                                       // 唯一名称，对应 function.name
-	Description string                                       // 自然语言说明，影响模型是否选用
-	Parameters  any                                          // JSON Schema 风格参数定义
-	Run         func(argsJSON string) (string, error)        // 执行体；err 会被 Exec 转成文本
+	Name        string                                // 唯一名称，对应 function.name
+	Description string                                // 自然语言说明，影响模型是否选用
+	Parameters  any                                   // JSON Schema 风格参数定义
+	Run         func(argsJSON string) (string, error) // 执行体；err 会被 Exec 转成文本
 }
 
 var (
@@ -114,10 +115,18 @@ func ToOpenAIAllow(allow []string) []openai.Tool {
 // 在注册表锁外调用 Run，避免慢工具（如 shell）长时间占用注册表锁；
 // 先过权限策略（Deny 直接返回、Allow 本次免确认），结果统一脱敏。
 func Exec(name, argsJSON string) string {
-	return redact(execRaw(name, argsJSON))
+	return ExecContext(context.Background(), name, argsJSON)
 }
 
-func execRaw(name, argsJSON string) string {
+// ExecContext 与 Exec 相同，但把 ctx 传给需要它的工具（如 delegate_task），便于回复被中断时取消。
+func ExecContext(ctx context.Context, name, argsJSON string) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return redact(execRaw(ctx, name, argsJSON))
+}
+
+func execRaw(ctx context.Context, name, argsJSON string) string {
 	mu.RLock()
 	var tool *Tool
 	for i := range registry {
@@ -145,6 +154,8 @@ func execRaw(name, argsJSON string) string {
 	defer execMu.Unlock()
 	preApproved.Store(d == Allow)
 	defer preApproved.Store(false)
+	callCtx = ctx
+	defer func() { callCtx = nil }()
 	result, err := tool.Run(argsJSON)
 	if err != nil {
 		return fmt.Sprintf("工具执行失败：%v", err)
@@ -157,4 +168,6 @@ func init() {
 	registerTime()
 	registerShell()
 	registerFiles()
+	registerPlan()
+	registerDelegate()
 }

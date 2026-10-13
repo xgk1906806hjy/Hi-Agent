@@ -10,17 +10,17 @@ import "github.com/xgk1906806hjy/Hi-Agent/internal/ui"
 
 // Go → 前端事件名。
 const (
-	EvUser     = "chat:user"     // TextPayload：用户输入回显
-	EvDelta    = "chat:delta"    // TextPayload：助手正文增量
-	EvProgress = "chat:progress" // TextPayload：工具/压缩等过程
-	EvNotice   = "chat:notice"   // TextPayload：轻提示
-	EvInfo     = "chat:info"     // TextPayload：系统信息（命令输出等）
-	EvError    = "chat:error"    // TextPayload
-	EvReset    = "chat:reset"    // ResetPayload：切换项目/会话后整体重绘
-	EvTurnBeg  = "turn:begin"    // 无载荷
-	EvTurnEnd  = "turn:end"      // 无载荷
-	EvStatus   = "status"        // StatusPayload
-	EvNav      = "nav"           // NavPayload
+	EvUser     = "chat:user"      // TextPayload：用户输入回显
+	EvDelta    = "chat:delta"     // TextPayload：助手正文增量
+	EvProgress = "chat:progress"  // TextPayload：工具/压缩等过程
+	EvNotice   = "chat:notice"    // TextPayload：轻提示
+	EvInfo     = "chat:info"      // TextPayload：系统信息（命令输出等）
+	EvError    = "chat:error"     // TextPayload
+	EvReset    = "chat:reset"     // ResetPayload：切换项目/会话后整体重绘
+	EvTurnBeg  = "turn:begin"     // 无载荷
+	EvTurnEnd  = "turn:end"       // 无载荷
+	EvStatus   = "status"         // StatusPayload
+	EvNav      = "nav"            // NavPayload
 	EvConfirm  = "dialog:confirm" // ConfirmPayload
 	EvSelect   = "dialog:select"  // SelectPayload
 	EvDismiss  = "dialog:dismiss" // DismissPayload：对话框被取消（窗口关闭）
@@ -45,17 +45,26 @@ type ResetPayload struct {
 
 // StatusPayload 镜像 ui.Status。
 type StatusPayload struct {
-	Model          string `json:"model"`
-	Provider       string `json:"provider"`
-	Session        string `json:"session"`
-	WorkDir        string `json:"workDir"`
-	Busy           bool   `json:"busy"`
-	CtxTokens      int    `json:"ctxTokens"`
-	CtxEstimated   bool   `json:"ctxEstimated"`
-	CtxWindow      int    `json:"ctxWindow"`
-	TurnPrompt     int    `json:"turnPrompt"`
-	TurnCompletion int    `json:"turnCompletion"`
-	Messages       int    `json:"messages"`
+	Model          string        `json:"model"`
+	Provider       string        `json:"provider"`
+	Session        string        `json:"session"`
+	WorkDir        string        `json:"workDir"`
+	Busy           bool          `json:"busy"`
+	CtxTokens      int           `json:"ctxTokens"`
+	CtxEstimated   bool          `json:"ctxEstimated"`
+	CtxWindow      int           `json:"ctxWindow"`
+	TurnPrompt     int           `json:"turnPrompt"`
+	TurnCompletion int           `json:"turnCompletion"`
+	Messages       int           `json:"messages"`
+	Policy         []string      `json:"policy"`
+	Todos          []TodoPayload `json:"todos"`
+}
+
+// TodoPayload 镜像 ui.Todo。
+type TodoPayload struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Status  string `json:"status"`
 }
 
 // NavSessionPayload 镜像 ui.NavSession。
@@ -112,8 +121,8 @@ type PromptPayload struct {
 
 // Snapshot 前端启动或刷新时一次性拉取的全量状态。
 type Snapshot struct {
-	Status StatusPayload `json:"status"`
-	Nav    NavPayload    `json:"nav"`
+	Status StatusPayload  `json:"status"`
+	Nav    NavPayload     `json:"nav"`
 	Prompt string         `json:"prompt"`
 	Slash  []SlashPayload `json:"slash"`
 }
@@ -123,7 +132,19 @@ func toStatus(s ui.Status) StatusPayload {
 		Model: s.Model, Provider: s.Provider, Session: s.Session, WorkDir: s.WorkDir, Busy: s.Busy,
 		CtxTokens: s.CtxTokens, CtxEstimated: s.CtxEstimated, CtxWindow: s.CtxWindow,
 		TurnPrompt: s.TurnPrompt, TurnCompletion: s.TurnCompletion, Messages: s.Messages,
+		Policy: s.Policy, Todos: toTodos(s.Todos),
 	}
+}
+
+func toTodos(in []ui.Todo) []TodoPayload {
+	if len(in) == 0 {
+		return []TodoPayload{}
+	}
+	out := make([]TodoPayload, len(in))
+	for i, t := range in {
+		out[i] = TodoPayload{ID: t.ID, Content: t.Content, Status: t.Status}
+	}
+	return out
 }
 
 func toNav(n ui.Nav) NavPayload {

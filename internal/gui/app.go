@@ -48,7 +48,7 @@ func (a *App) run() {
 		Height:           780,
 		MinWidth:         760,
 		MinHeight:        520,
-		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 250, A: 255},
+		BackgroundColour: windowBackground(),
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        a.startup,
 		OnShutdown:       func(context.Context) { a.adapter.Closed() },

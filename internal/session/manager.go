@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -177,21 +178,50 @@ func (m *Manager) Delete(id string) error {
 }
 
 // ListLines 返回供展示的会话列表行（当前会话前缀 *）。
+// 含标题与更新时间；未保存的排在最前，其余按更新时间倒序。
 func (m *Manager) ListLines() []string {
 	m.SyncFromChat()
-	ids := m.data.IDs()
-	lines := make([]string, 0, len(ids))
-	for _, id := range ids {
+	type row struct {
+		line string
+		at   time.Time
+	}
+	rows := make([]row, 0, len(m.data.Sessions))
+	for _, id := range m.data.IDs() {
 		rec := m.data.Get(id)
 		n := 0
+		title := ""
+		var at time.Time
 		if rec != nil {
 			n = len(rec.Messages)
+			title = Title(rec.Messages)
+			at = rec.UpdatedAt
+		}
+		if title == "" {
+			title = "（无标题）"
+		}
+		when := "未保存"
+		if !at.IsZero() {
+			when = at.Format("01-02 15:04")
 		}
 		mark := " "
 		if id == m.data.Current {
 			mark = "*"
 		}
-		lines = append(lines, fmt.Sprintf("%s %s  (%d 条消息)", mark, id, n))
+		rows = append(rows, row{
+			line: fmt.Sprintf("%s %s  %s  (%d 条 · %s)", mark, id, title, n, when),
+			at:   at,
+		})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		zi, zj := rows[i].at.IsZero(), rows[j].at.IsZero()
+		if zi != zj {
+			return zi
+		}
+		return rows[i].at.After(rows[j].at)
+	})
+	lines := make([]string, len(rows))
+	for i, r := range rows {
+		lines[i] = r.line
 	}
 	return lines
 }

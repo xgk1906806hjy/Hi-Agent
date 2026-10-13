@@ -15,6 +15,8 @@
   --color-user: #eef4ff;
   --color-danger: #b91c1c;
   --color-warn: #92400e;
+  --color-add: #15803d;
+  --color-del: #b91c1c;
 }
 
 :root {
@@ -36,6 +38,8 @@
     --color-user: #26324a;
     --color-danger: #f87171;
     --color-warn: #fbbf24;
+    --color-add: #4ade80;
+    --color-del: #f87171;
     --scroll-thumb: #3d3d3b;
     --scroll-thumb-hover: #52524f;
     --code-bg: #1a1a19;
