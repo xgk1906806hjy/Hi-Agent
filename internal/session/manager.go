@@ -178,7 +178,7 @@ func (m *Manager) Delete(id string) error {
 }
 
 // ListLines 返回供展示的会话列表行（当前会话前缀 *）。
-// 含标题与更新时间；未保存的排在最前，其余按更新时间倒序。
+// 含标题与更新时间；按更新时间倒序，未保存的排在最后。
 func (m *Manager) ListLines() []string {
 	m.SyncFromChat()
 	type row struct {
@@ -215,7 +215,7 @@ func (m *Manager) ListLines() []string {
 	sort.SliceStable(rows, func(i, j int) bool {
 		zi, zj := rows[i].at.IsZero(), rows[j].at.IsZero()
 		if zi != zj {
-			return zi
+			return !zi
 		}
 		return rows[i].at.After(rows[j].at)
 	})

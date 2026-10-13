@@ -219,8 +219,7 @@ function todoMarkClass(status: string): string {
 }
 
 function sortSessions(list: NavSession[]): NavSession[] {
-  const stamp = (s: NavSession) => s.updatedAt || Number.MAX_SAFE_INTEGER;
-  return [...list].sort((a, b) => stamp(b) - stamp(a) || a.id.localeCompare(b.id));
+  return [...list].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || a.id.localeCompare(b.id));
 }
 
 export function relativeTime(ms: number): string {

@@ -25,6 +25,13 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	d.PutMessages(DefaultID, []openai.ChatCompletionMessage{
 		{Role: openai.ChatMessageRoleUser, Content: "hello"},
 	})
+	stamped := d.Get(DefaultID).UpdatedAt
+	d.PutMessages(DefaultID, []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleUser, Content: "hello"},
+	})
+	if !d.Get(DefaultID).UpdatedAt.Equal(stamped) {
+		t.Fatal("unchanged messages must keep UpdatedAt")
+	}
 	if err := d.Save(); err != nil {
 		t.Fatal(err)
 	}

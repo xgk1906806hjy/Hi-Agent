@@ -3,6 +3,7 @@
 package session
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -122,16 +123,37 @@ func (d *Data) Get(id string) *Record {
 	return d.Sessions[id]
 }
 
-// PutMessages 写入指定会话消息并刷新时间戳（深拷贝 messages）。
+// PutMessages 写入指定会话消息（深拷贝）。内容没变时不改 UpdatedAt，
+// 这样只是点开、切换会话不会把该条顶到列表最前。
 func (d *Data) PutMessages(id string, msgs []openai.ChatCompletionMessage) {
+	cloned := cloneMsgs(msgs)
 	rec := d.Sessions[id]
 	if rec == nil {
 		rec = &Record{ID: id}
 		d.Sessions[id] = rec
 	}
 	rec.ID = id
-	rec.Messages = cloneMsgs(msgs)
+	if sameMessages(rec.Messages, cloned) {
+		rec.Messages = cloned
+		return
+	}
+	rec.Messages = cloned
 	rec.UpdatedAt = time.Now()
+}
+
+func sameMessages(a, b []openai.ChatCompletionMessage) bool {
+	if a == nil {
+		a = []openai.ChatCompletionMessage{}
+	}
+	if b == nil {
+		b = []openai.ChatCompletionMessage{}
+	}
+	ab, err1 := json.Marshal(a)
+	bb, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return bytes.Equal(ab, bb)
 }
 
 // Ensure 保证 id 对应的空记录存在。
