@@ -211,16 +211,20 @@ export function createMockBridge(): Bridge {
       pushStatus({ session: id, messages: 0 });
       emit("chat:reset", { turns: [] });
     },
-    renameSession(oldId, newId) {
+    renameSession(_path, oldId, newId) {
       mapCurrent((list) => list.map((s) => (s.id === oldId ? { ...s, id: newId } : s)));
       if (status.session === oldId) pushStatus({ session: newId });
     },
-    deleteSession(id) {
+    deleteSession(_path, id) {
       void ask("dialog:confirm", { prompt: `确认删除会话 ${id}？此操作不可撤销。` }).then((v) => {
         if (v !== 1) return;
         mapCurrent((list) => list.filter((s) => s.id !== id));
       });
     },
+    setTheme() {},
+    windowMinimise() {},
+    windowToggleMaximise() {},
+    windowClose() {},
     on(event, fn) {
       const set = handlers.get(event) ?? new Set();
       set.add(fn as Handler);

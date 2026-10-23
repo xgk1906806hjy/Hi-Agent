@@ -171,9 +171,9 @@ Hi-agent/
 
 ## 6. 当前进度
 
-**已完成：Day 1–9**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚、任务清单与子任务委派）。  
+**已完成：Day 1–10**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚、任务清单与子任务委派、项目指令与长期记忆）。  
 工具循环护栏（轮次 / 重复熔断 / 预算 / 收缩）已作为横切能力落地。  
-另：Wails 桌面 GUI（项目 > 会话侧栏、会话标题/时间、重命名/删除、斜杠补全、深色模式）与 `workspace` 项目注册表已落地。
+另：Wails 桌面 GUI（项目 > 会话侧栏、会话标题/时间、跨项目重命名/删除、斜杠补全、跟随系统/浅色/深色）与 `workspace` 项目注册表已落地。
 
 Day 8 的 Go 落地方式（对照原 TS 方案）：
 
@@ -181,10 +181,10 @@ Day 8 的 Go 落地方式（对照原 TS 方案）：
 |--------|---------|
 | `permissions.ts` | `internal/permission`：`Load`（`.geekagent/GeekAgent.json`）、`Decide`、`SafePath`、`Redact` |
 | 接入工具 | `tools.SetPolicy` / `SetPathGuard` / `SetRedactor` 钩子（tools 不依赖 permission，由 REPL 注入） |
-| `undo.ts` | `tools.UndoLast` + `.geekagent/undo.json`（单步） |
+| `undo.ts` | `tools.UndoLast` + `.geekagent/undo.json`（最多 20 条；不撤销 shell） |
 | 命令 | `/undo`、`/permissions` |
 
-**下一步：Day 10**（`AGENTS.md` 入每轮 system、`memory_write` / `memory_search`），按下方路线图推进。
+**下一步：Day 11**（Skills：`/use` `/unuse` `/skills`），按下方路线图推进。
 
 ## 7. Day 9–16 路线图（Go 落地规划）
 

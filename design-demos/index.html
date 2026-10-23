@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Hi-agent GUI · 三版设计方向</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  header { padding: 20px 24px 8px; }
+  h1 { margin: 0 0 6px; font-size: 18px; font-weight: 650; }
+  p { margin: 0; color: #999; font-size: 13px; line-height: 1.5; max-width: 720px; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 28px; padding: 16px 24px 40px; }
+  figure { margin: 0; }
+  figcaption {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 10px; gap: 12px;
+  }
+  figcaption strong { font-size: 14px; }
+  figcaption span { font-size: 12px; color: #888; }
+  iframe {
+    width: 1280px; height: 800px; border: 0; border-radius: 8px;
+    transform-origin: top left; background: #000;
+    box-shadow: 0 12px 40px rgba(0,0,0,.4);
+  }
+  .frame {
+    width: min(100%, 960px); height: 600px; overflow: hidden; border-radius: 10px;
+    border: 1px solid #2a2a2a;
+  }
+  .frame iframe { transform: scale(0.75); }
+  a.btn {
+    color: #9ec1ff; font-size: 12px; text-decoration: none;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Hi-agent 桌面壳 · 三版设计方向</h1>
+    <p>同内容、同布局结构，只换视觉。选一版，或说「B 的深色 + C 的输入框」。选定后再落到正式前端代码。</p>
+  </header>
+  <div class="grid">
+    <figure>
+      <figcaption>
+        <strong>A · 包豪斯模块</strong>
+        <span>轮盘 #10 · 硬边色块 · 高对比 <a class="btn" href="01-bauhaus.html" target="_blank">全尺寸打开</a></span>
+      </figcaption>
+      <div class="frame"><iframe src="01-bauhaus.html" title="A"></iframe></div>
+    </figure>
+    <figure>
+      <figcaption>
+        <strong>B · 安静终端</strong>
+        <span>参照 Cursor/Claude · 深色密度 <a class="btn" href="02-cursor-quiet.html" target="_blank">全尺寸打开</a></span>
+      </figcaption>
+      <div class="frame"><iframe src="02-cursor-quiet.html" title="B"></iframe></div>
+    </figure>
+    <figure>
+      <figcaption>
+        <strong>C · 精密纸面</strong>
+        <span>Linear/Craft 思维 · 浅暖留白 <a class="btn" href="03-linear-craft.html" target="_blank">全尺寸打开</a></span>
+      </figcaption>
+      <div class="frame"><iframe src="03-linear-craft.html" title="C"></iframe></div>
+    </figure>
+  </div>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hi-agent · A 包豪斯模块</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #111111;
+    --paper: #f4f1ea;
+    --panel: #ebe6db;
+    --white: #fffdf8;
+    --line: #111111;
+    --red: #e63946;
+    --yellow: #ffb703;
+    --blue: #0077b6;
+    --muted: #5c574e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #d9d3c6; font-family: Manrope, system-ui, sans-serif; color: var(--ink);
+  }
+  .label {
+    position: fixed; top: 16px; left: 20px; font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #444;
+  }
+  .window {
+    width: 1280px; height: 800px; display: grid; grid-template-columns: 248px 1fr;
+    background: var(--paper); border: 3px solid var(--ink); box-shadow: 8px 8px 0 var(--ink);
+  }
+  .side {
+    border-right: 3px solid var(--ink); background: var(--panel); display: flex; flex-direction: column;
+  }
+  .side-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 14px 10px; border-bottom: 3px solid var(--ink);
+  }
+  .side-h b { font-size: 11px; letter-spacing: 0.14em; }
+  .plus {
+    width: 28px; height: 28px; border: 2px solid var(--ink); background: var(--yellow);
+    display: grid; place-items: center; font-weight: 800; cursor: default;
+  }
+  .todo {
+    margin: 12px; border: 2px solid var(--ink); background: var(--white);
+  }
+  .todo .cap {
+    display: flex; gap: 8px; align-items: center; padding: 8px 10px;
+    border-bottom: 2px solid var(--ink); background: var(--blue); color: white; font-size: 12px; font-weight: 700;
+  }
+  .dot { width: 10px; height: 10px; background: var(--yellow); border: 1.5px solid var(--ink); }
+  .todo ul { list-style: none; margin: 0; padding: 8px 10px; font-size: 12.5px; }
+  .todo li { display: flex; gap: 8px; padding: 4px 0; }
+  .mark { width: 14px; height: 14px; border: 2px solid var(--ink); flex: none; margin-top: 1px; }
+  .mark.on { background: var(--red); }
+  .proj { padding: 10px 12px 0; }
+  .proj-name {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    border: 2px solid var(--ink); background: var(--white); font-weight: 700; font-size: 13px;
+  }
+  .chip { width: 12px; height: 12px; background: var(--red); border: 1.5px solid var(--ink); }
+  .sess { margin: 8px 0 0 14px; border-left: 2px solid var(--ink); padding-left: 10px; }
+  .sess button {
+    display: block; width: 100%; text-align: left; border: 0; background: transparent;
+    padding: 8px 6px; font: inherit; cursor: default;
+  }
+  .sess button.active { background: var(--yellow); border: 2px solid var(--ink); }
+  .sess .t { font-size: 13px; font-weight: 600; }
+  .sess .m { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .cwd {
+    margin-top: auto; border-top: 3px solid var(--ink); padding: 10px 12px;
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--muted);
+  }
+  .main { display: grid; grid-template-rows: 52px 1fr auto; min-width: 0; }
+  .top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; border-bottom: 3px solid var(--ink); background: var(--white);
+  }
+  .brand { font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+  .brand span { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 8px; }
+  .pills { display: flex; gap: 8px; align-items: center; }
+  .pill {
+    border: 2px solid var(--ink); padding: 4px 10px; font-size: 11px; font-weight: 700;
+    background: var(--white);
+  }
+  .pill.blue { background: var(--blue); color: #fff; }
+  .pill.yellow { background: var(--yellow); }
+  .thread { overflow: auto; padding: 22px 28px; background: var(--paper); }
+  .col { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .user {
+    align-self: flex-end; max-width: 78%;
+    background: var(--blue); color: #fff; border: 2px solid var(--ink);
+    padding: 10px 14px; font-size: 14px; line-height: 1.55;
+  }
+  .tools {
+    border: 2px solid var(--ink); background: var(--white); font-size: 13px;
+  }
+  .tools summary {
+    list-style: none; cursor: default; padding: 8px 12px; font-weight: 700;
+    display: flex; gap: 8px; align-items: center; background: var(--panel);
+    border-bottom: 2px solid var(--ink);
+  }
+  .sq { width: 10px; height: 10px; background: var(--red); border: 1.5px solid var(--ink); }
+  .tools pre {
+    margin: 0; padding: 10px 12px; font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px; color: var(--muted); white-space: pre-wrap;
+  }
+  .bot { font-size: 14.5px; line-height: 1.65; }
+  .bot h3 { margin: 0 0 8px; font-size: 15px; }
+  .bot p { margin: 0 0 8px; }
+  .bot code {
+    font-family: "IBM Plex Mono", monospace; font-size: 12.5px;
+    background: var(--white); border: 1.5px solid var(--ink); padding: 1px 5px;
+  }
+  .composer {
+    border-top: 3px solid var(--ink); background: var(--white); padding: 14px 20px 16px;
+  }
+  .box {
+    max-width: 720px; margin: 0 auto; border: 3px solid var(--ink); background: var(--paper);
+    display: flex; gap: 10px; padding: 10px 12px; align-items: flex-end;
+  }
+  .box textarea {
+    flex: 1; border: 0; resize: none; background: transparent; font: inherit;
+    font-size: 14px; min-height: 44px; outline: none;
+  }
+  .send {
+    width: 40px; height: 40px; border: 2px solid var(--ink); background: var(--red);
+    color: #fff; font-weight: 800; font-size: 18px;
+  }
+  .hints {
+    max-width: 720px; margin: 8px auto 0; display: flex; gap: 10px;
+    font-size: 11px; font-weight: 700;
+  }
+  .hints span {
+    border: 1.5px solid var(--ink); padding: 2px 8px; background: var(--yellow);
+  }
+</style>
+</head>
+<body>
+  <div class="label">方向 A · 轮盘 #10 Bauhaus Geometric · 几何色块 / 硬边 / 高对比模块</div>
+  <div class="window">
+    <aside class="side">
+      <div class="side-h"><b>项目</b><div class="plus">+</div></div>
+      <div class="todo">
+        <div class="cap"><span class="dot"></span>任务 · 2</div>
+        <ul>
+          <li><span class="mark on"></span>读 permission 合并逻辑</li>
+          <li><span class="mark"></span>补 GUI 视觉改版</li>
+        </ul>
+      </div>
+      <div class="proj">
+        <div class="proj-name"><span class="chip"></span>Hi-agent</div>
+        <div class="sess">
+          <button class="active"><div class="t">缺口补齐与 Day10</div><div class="m">今天 · 28 条</div></button>
+          <button><div class="t">GUI 收尾</div><div class="m">10-13 · 12 条</div></button>
+          <button><div class="t">default</div><div class="m">未保存</div></button>
+        </div>
+      </div>
+      <div class="cwd">E:\workspace\Hi-agent</div>
+    </aside>
+    <section class="main">
+      <header class="top">
+        <div class="brand">Hi-agent<span>缺口补齐与 Day10</span></div>
+        <div class="pills">
+          <span class="pill">12.4k / 128k</span>
+          <span class="pill">跟随系统</span>
+          <span class="pill yellow">权限</span>
+          <span class="pill blue">openai / gpt-5</span>
+        </div>
+      </header>
+      <div class="thread">
+        <div class="col">
+          <div class="user">把未实现的缺口补齐，然后做 Day 10。深色开关和跨项目重命名也要。</div>
+          <div class="tools">
+            <div class="summary"><span class="sq"></span>过程 · 4</div>
+            <pre>[调用工具 todo_write → 当前任务：…]
+[调用工具 memory_write → 已记住 a1b2c3d4]
+[调用工具 read → docs/gui/功能逻辑.md]</pre>
+          </div>
+          <div class="bot">
+            <h3>已完成缺口与 Day 10</h3>
+            <p>主题三态、跨项目会话操作、任务按会话落盘、用户级权限合并都已接上。</p>
+            <p>长期记忆写入 <code>.geekagent/memory.json</code>，每轮请求前注入工作区 <code>AGENTS.md</code>。</p>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="box">
+          <textarea>继续做视觉改版…</textarea>
+          <button class="send">↑</button>
+        </div>
+        <div class="hints"><span>/model</span><span>/sessions</span><span>/help</span></div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -140,6 +140,9 @@ func runGlob(argsJSON string) (string, error) {
 	if pattern == "" {
 		return "缺少参数 pattern", nil
 	}
+	if filepath.IsAbs(args.Pattern) || strings.HasPrefix(pattern, "/") || hasDotDot(pattern) {
+		return "pattern 必须是工作区内的相对路径，不能是绝对路径或包含 ..", nil
+	}
 	matches, err := globWalk(pattern)
 	if err != nil {
 		return "", err
@@ -161,6 +164,12 @@ func globWalk(pattern string) ([]string, error) {
 		if err != nil {
 			return nil // 单个路径错误不中断整次搜索
 		}
+		if d.Type()&os.ModeSymlink != 0 && escapesWorkspace(path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			if filepath.Base(path) == ".git" {
 				return filepath.SkipDir
@@ -178,6 +187,29 @@ func globWalk(pattern string) ([]string, error) {
 		return nil
 	})
 	return matches, err
+}
+
+func hasDotDot(pattern string) bool {
+	for _, seg := range strings.Split(pattern, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// escapesWorkspace 符号链接解析后是否离开工作区。未注入路径检查时不拦截。
+func escapesWorkspace(path string) bool {
+	hookMu.RLock()
+	fn := pathGuard
+	hookMu.RUnlock()
+	if fn == nil {
+		return false
+	}
+	if _, err := fn(path); err != nil {
+		return true
+	}
+	return false
 }
 
 // pathMatch 支持 * 与 **（按 / 分段匹配）。

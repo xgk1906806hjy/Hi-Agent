@@ -72,10 +72,10 @@ func (c *Chat) compactOldMessages(ctx context.Context) (int, error) {
 	// —— 非流式摘要请求 ——
 	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: c.model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: compressSystem},
-			{Role: openai.ChatMessageRoleUser, Content: string(raw)},
-		},
+		Messages: outboundMessages(nil,
+			openai.ChatCompletionMessage{Role: openai.ChatMessageRoleSystem, Content: compressSystem},
+			openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: string(raw)},
+		),
 	})
 	if err != nil {
 		return 0, err

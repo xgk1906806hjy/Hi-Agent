@@ -25,8 +25,12 @@ interface Actions {
   removeProject(path: string): void;
   openSession(path: string, id: string): void;
   newSession(): void;
-  renameSession(oldId: string, newId: string): void;
-  deleteSession(id: string): void;
+  renameSession(path: string, oldId: string, newId: string): void;
+  deleteSession(path: string, id: string): void;
+  setTheme(appearance: "light" | "dark"): void;
+  windowMinimise(): void;
+  windowToggleMaximise(): void;
+  windowClose(): void;
 }
 
 const noop = () => {};
@@ -70,8 +74,12 @@ export const useStore = create<State & { actions: Actions }>((set, get) => ({
     },
     openSession: (path, id) => bridge?.openSession(path, id),
     newSession: () => bridge?.newSession(),
-    renameSession: (o, n) => bridge?.renameSession(o, n),
-    deleteSession: (id) => bridge?.deleteSession(id),
+    renameSession: (path, o, n) => bridge?.renameSession(path, o, n),
+    deleteSession: (path, id) => bridge?.deleteSession(path, id),
+    setTheme: (appearance) => bridge?.setTheme(appearance),
+    windowMinimise: () => bridge?.windowMinimise(),
+    windowToggleMaximise: () => bridge?.windowToggleMaximise(),
+    windowClose: () => bridge?.windowClose(),
   },
 }));
 

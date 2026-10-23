@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	resolveUserConfig = func() string { return filepath.Join(os.TempDir(), "hi-agent-test-no-user-config.json") }
+	os.Exit(m.Run())
+}
+
 func writeConfig(t *testing.T, root, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, ".geekagent"), 0o755); err != nil {
@@ -74,6 +79,36 @@ func TestLoadMissingAndCorrupt(t *testing.T) {
 	p, err = Load(root)
 	if err == nil || p == nil || p.Decide("read", "{}") != Allow {
 		t.Fatalf("corrupt should fall back: %v", err)
+	}
+}
+
+func TestProjectOverridesUser(t *testing.T) {
+	prev := resolveUserConfig
+	t.Cleanup(func() { resolveUserConfig = prev })
+	user := filepath.Join(t.TempDir(), "GeekAgent.json")
+	if err := os.WriteFile(user, []byte(`{"permissions":{"deny":["read"],"allow":["write"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolveUserConfig = func() string { return user }
+
+	root := t.TempDir()
+	p, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Decide("read", "{}") != Deny {
+		t.Fatal("user deny should apply when project has no rule")
+	}
+	writeConfig(t, root, `{"permissions":{"allow":["read"]}}`)
+	p, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Decide("read", "{}") != Allow {
+		t.Fatal("project allow should override user deny")
+	}
+	if !strings.Contains(strings.Join(p.Lines(), "\n"), "项目配置") || !strings.Contains(strings.Join(p.Lines(), "\n"), "用户配置") {
+		t.Fatal(p.Lines())
 	}
 }
 

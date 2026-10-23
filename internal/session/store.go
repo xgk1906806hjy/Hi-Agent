@@ -55,9 +55,14 @@ func NewData() *Data {
 	}
 }
 
-// Load 从磁盘读取；文件不存在返回 NewData + nil error。
+// Load 从当前工作目录读取；文件不存在返回 NewData + nil error。
 func Load() (*Data, error) {
-	b, err := os.ReadFile(Path())
+	return LoadDir(".")
+}
+
+// LoadDir 读取 dir 下的会话文件。文件不存在返回 NewData。
+func LoadDir(dir string) (*Data, error) {
+	b, err := os.ReadFile(filepath.Join(dir, fileRelPath))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return NewData(), nil
@@ -96,16 +101,78 @@ func Load() (*Data, error) {
 	return &d, nil
 }
 
-// Save 写入 `.geekagent/sessions.json`（自动建目录）。
+// Save 写入当前工作目录的会话文件。
 func (d *Data) Save() error {
-	if err := os.MkdirAll(filepath.Dir(Path()), 0o755); err != nil {
+	return d.SaveDir(".")
+}
+
+// SaveDir 写入 dir 下的 `.geekagent/sessions.json`。
+func (d *Data) SaveDir(dir string) error {
+	path := filepath.Join(dir, fileRelPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(Path(), b, 0o644)
+	return os.WriteFile(path, b, 0o644)
+}
+
+// Delete 从内存删除会话。删的是当前会话时切到最近更新的另一个；删空则补 default。
+func (d *Data) Delete(id string) error {
+	id = strings.TrimSpace(id)
+	if _, ok := d.Sessions[id]; !ok {
+		return fmt.Errorf("会话不存在：%s", id)
+	}
+	delete(d.Sessions, id)
+	if d.Current != id {
+		return nil
+	}
+	next := ""
+	var latest time.Time
+	for sid, rec := range d.Sessions {
+		if rec == nil {
+			continue
+		}
+		if next == "" || rec.UpdatedAt.After(latest) {
+			next, latest = sid, rec.UpdatedAt
+		}
+	}
+	if next == "" {
+		next = DefaultID
+		d.Ensure(next)
+	}
+	d.Current = next
+	return nil
+}
+
+// RenameIn 重命名另一个项目目录里的会话并立即落盘。
+func RenameIn(dir, oldID, newID string) error {
+	oldID, newID = strings.TrimSpace(oldID), strings.TrimSpace(newID)
+	if !ValidID(newID) {
+		return fmt.Errorf("非法会话 ID：%s", newID)
+	}
+	d, err := LoadDir(dir)
+	if err != nil {
+		return err
+	}
+	if err := d.Rename(oldID, newID); err != nil {
+		return err
+	}
+	return d.SaveDir(dir)
+}
+
+// DeleteIn 删除另一个项目目录里的会话并立即落盘。
+func DeleteIn(dir, id string) error {
+	d, err := LoadDir(dir)
+	if err != nil {
+		return err
+	}
+	if err := d.Delete(id); err != nil {
+		return err
+	}
+	return d.SaveDir(dir)
 }
 
 // IDs 返回按字典序排列的会话 ID。

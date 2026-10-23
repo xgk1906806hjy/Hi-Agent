@@ -157,23 +157,13 @@ func (m *Manager) Delete(id string) error {
 		return fmt.Errorf("会话不存在：%s", id)
 	}
 	m.SyncFromChat()
-	delete(m.data.Sessions, id)
-	if m.data.Current != id {
-		return nil
+	wasCurrent := m.data.Current == id
+	if err := m.data.Delete(id); err != nil {
+		return err
 	}
-	next := ""
-	var latest time.Time
-	for sid, rec := range m.data.Sessions {
-		if next == "" || rec.UpdatedAt.After(latest) {
-			next, latest = sid, rec.UpdatedAt
-		}
+	if wasCurrent {
+		m.applyCurrentToChat()
 	}
-	if next == "" {
-		next = DefaultID
-		m.data.Ensure(next)
-	}
-	m.data.Current = next
-	m.applyCurrentToChat()
 	return nil
 }
 

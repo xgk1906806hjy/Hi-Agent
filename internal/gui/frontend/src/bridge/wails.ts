@@ -10,8 +10,12 @@ interface GoApp {
   RemoveProject(path: string): Promise<void>;
   OpenSession(path: string, id: string): Promise<void>;
   NewSession(): Promise<void>;
-  RenameSession(oldId: string, newId: string): Promise<void>;
-  DeleteSession(id: string): Promise<void>;
+  RenameSession(path: string, oldId: string, newId: string): Promise<void>;
+  DeleteSession(path: string, id: string): Promise<void>;
+  SetTheme(mode: string): Promise<void>;
+  WindowMinimise(): Promise<void>;
+  WindowToggleMaximise(): Promise<void>;
+  WindowClose(): Promise<void>;
 }
 
 interface WailsRuntime {
@@ -46,8 +50,12 @@ export function createWailsBridge(): Bridge {
     removeProject: (p) => app.RemoveProject(p),
     openSession: (p, id) => void app.OpenSession(p, id),
     newSession: () => void app.NewSession(),
-    renameSession: (o, n) => void app.RenameSession(o, n),
-    deleteSession: (id) => void app.DeleteSession(id),
+    renameSession: (path, o, n) => void app.RenameSession(path, o, n),
+    deleteSession: (path, id) => void app.DeleteSession(path, id),
+    setTheme: (mode) => void app.SetTheme(mode),
+    windowMinimise: () => void app.WindowMinimise(),
+    windowToggleMaximise: () => void app.WindowToggleMaximise(),
+    windowClose: () => void app.WindowClose(),
     on<E extends EventName>(event: E, fn: (payload: EventMap[E]) => void) {
       const rt = window.runtime;
       if (!rt?.EventsOn) {

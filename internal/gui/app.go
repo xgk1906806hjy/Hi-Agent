@@ -13,6 +13,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/workspace"
 )
 
@@ -48,6 +50,7 @@ func (a *App) run() {
 		Height:           780,
 		MinWidth:         760,
 		MinHeight:        520,
+		Frameless:        true,
 		BackgroundColour: windowBackground(),
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        a.startup,
@@ -179,17 +182,85 @@ func (a *App) NewSession() {
 	}
 }
 
-// RenameSession 重命名当前项目里的会话。
-func (a *App) RenameSession(oldID, newID string) {
+// RenameSession 重命名会话。当前项目走 REPL；其它项目直接改该目录的会话文件。
+func (a *App) RenameSession(path, oldID, newID string) {
 	if oldID == "" || newID == "" || oldID == newID || !a.requireIdle() {
 		return
 	}
-	a.adapter.Submit("/rename " + oldID + " " + newID)
+	if path == "" || workspace.SamePath(path, a.adapter.Snapshot().Status.WorkDir) {
+		a.adapter.Submit("/rename " + oldID + " " + newID)
+		return
+	}
+	if err := session.RenameIn(path, oldID, newID); err != nil {
+		a.adapter.Error(err.Error())
+		return
+	}
+	if err := plan.Move(path, oldID, newID); err != nil {
+		a.adapter.Error("任务清单：" + err.Error())
+	}
+	a.adapter.RefreshNav()
 }
 
-// DeleteSession 删除当前项目里的会话（REPL 侧弹确认）。
-func (a *App) DeleteSession(id string) {
-	if id != "" && a.requireIdle() {
-		a.adapter.Submit("/delete " + id)
+// SetTheme 把原生窗口背景改成与页面一致。mode 取 light 或 dark（跟随系统时由前端算好再传入）。
+func (a *App) SetTheme(mode string) {
+	a.mu.Lock()
+	ctx := a.ctx
+	a.mu.Unlock()
+	if ctx == nil {
+		return
 	}
+	if mode == "dark" {
+		// 与 --color-bg 深色一致
+		runtime.WindowSetBackgroundColour(ctx, 26, 25, 23, 255)
+		return
+	}
+	// 与 --color-bg 浅色 #f6f5f2 一致
+	runtime.WindowSetBackgroundColour(ctx, 246, 245, 242, 255)
+}
+
+// WindowMinimise 最小化无边框窗口。
+func (a *App) WindowMinimise() {
+	if ctx := a.runtimeCtx(); ctx != nil {
+		runtime.WindowMinimise(ctx)
+	}
+}
+
+// WindowToggleMaximise 最大化 / 还原。
+func (a *App) WindowToggleMaximise() {
+	if ctx := a.runtimeCtx(); ctx != nil {
+		runtime.WindowToggleMaximise(ctx)
+	}
+}
+
+// WindowClose 关闭窗口（随后 REPL 会走 exit 保存会话）。
+func (a *App) WindowClose() {
+	a.quit()
+}
+
+func (a *App) runtimeCtx() context.Context {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ctx
+}
+
+// DeleteSession 删除会话。当前项目走 REPL（含确认）；其它项目确认后直接改文件。
+func (a *App) DeleteSession(path, id string) {
+	if id == "" || !a.requireIdle() {
+		return
+	}
+	if path == "" || workspace.SamePath(path, a.adapter.Snapshot().Status.WorkDir) {
+		a.adapter.Submit("/delete " + id)
+		return
+	}
+	if !a.adapter.Confirm("确认删除会话 " + id + "？此操作不可撤销。") {
+		return
+	}
+	if err := plan.Drop(path, id); err != nil {
+		a.adapter.Error("任务清单：" + err.Error())
+	}
+	if err := session.DeleteIn(path, id); err != nil {
+		a.adapter.Error(err.Error())
+		return
+	}
+	a.adapter.RefreshNav()
 }

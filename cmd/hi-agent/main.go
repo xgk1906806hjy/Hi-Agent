@@ -20,6 +20,7 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/config"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/memory"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
@@ -31,17 +32,19 @@ import (
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
 type app struct {
-	chat         *chat.Chat
-	mgr          *session.Manager
-	ui           ui.UI
-	workDir      string
-	provider     string
-	baseURL      string
-	apiKey       string
-	policy       *permission.Policy
-	policyAt     time.Time
-	policyExists bool
-	policyErr    string
+	chat             *chat.Chat
+	mgr              *session.Manager
+	ui               ui.UI
+	workDir          string
+	provider         string
+	baseURL          string
+	apiKey           string
+	policy           *permission.Policy
+	policyAt         time.Time
+	policyExists     bool
+	userPolicyAt     time.Time
+	userPolicyExists bool
+	policyErr        string
 
 	busy     atomic.Bool
 	exitOnce sync.Once
@@ -113,10 +116,15 @@ func main() {
 	c.SetUsageHook(a.ui.Refresh)
 	tools.SetConfirm(a.ui.Confirm)
 	tools.SetDelegator(func(ctx context.Context, task string) (string, error) {
-		return a.chat.Delegate(ctx, task)
+		return a.chat.Delegate(ctx, task, func(delta string) {
+			a.ui.Progress(delta)
+		})
 	})
 	if err := a.installPermissions(); err != nil {
 		loadErr = strings.TrimSpace(loadErr + "\n权限配置：" + err.Error())
+	}
+	if err := plan.Activate(a.workDir, a.mgr.Current()); err != nil {
+		loadErr = strings.TrimSpace(loadErr + "\n任务清单：" + err.Error())
 	}
 	a.watchIdleInterrupt()
 
@@ -296,7 +304,9 @@ func (a *app) switchProject(path string) bool {
 	if err := workspace.Remember(abs); err != nil {
 		a.ui.Error("记录项目失败：" + err.Error())
 	}
-	plan.Reset()
+	if err := plan.Activate(abs, a.mgr.Current()); err != nil {
+		a.ui.Error("任务清单：" + err.Error())
+	}
 	if err := a.reloadPolicy(); err != nil {
 		a.ui.Error("权限配置：" + err.Error())
 	}
@@ -332,37 +342,38 @@ func (a *app) reloadPolicy() error {
 	return err
 }
 
-// ensurePolicy 在配置文件的修改时间变化时重新加载。损坏时只提示一次。
+// ensurePolicy 在项目或用户配置的修改时间变化时重新加载。损坏时只提示一次。
 func (a *app) ensurePolicy() {
-	path := filepath.Join(a.workDir, filepath.FromSlash(permission.ConfigPath))
-	st, err := os.Stat(path)
-	exists := err == nil
-	var at time.Time
-	if exists {
-		at = st.ModTime()
-	}
-	if a.policy != nil && exists == a.policyExists && at.Equal(a.policyAt) {
+	exists, at := policyStamp(filepath.Join(a.workDir, filepath.FromSlash(permission.ConfigPath)))
+	userExists, userAt := policyStamp(permission.UserConfigPath())
+	if a.policy != nil && exists == a.policyExists && at.Equal(a.policyAt) && userExists == a.userPolicyExists && userAt.Equal(a.userPolicyAt) {
 		return
 	}
-	if loadErr := a.reloadPolicy(); loadErr != nil && loadErr.Error() != a.policyErr {
-		a.policyErr = loadErr.Error()
-		a.ui.Error("权限配置：" + loadErr.Error())
+	loadErr := a.reloadPolicy()
+	if loadErr != nil {
+		if loadErr.Error() != a.policyErr {
+			a.policyErr = loadErr.Error()
+			a.ui.Error("权限配置：" + loadErr.Error())
+		}
 		return
 	}
-	if err == nil || os.IsNotExist(err) {
-		a.policyErr = ""
-	}
+	a.policyErr = ""
 }
 
 func (a *app) notePolicyFile() {
-	path := filepath.Join(a.workDir, filepath.FromSlash(permission.ConfigPath))
-	st, err := os.Stat(path)
-	a.policyExists = err == nil
-	if a.policyExists {
-		a.policyAt = st.ModTime()
-	} else {
-		a.policyAt = time.Time{}
+	a.policyExists, a.policyAt = policyStamp(filepath.Join(a.workDir, filepath.FromSlash(permission.ConfigPath)))
+	a.userPolicyExists, a.userPolicyAt = policyStamp(permission.UserConfigPath())
+}
+
+func policyStamp(path string) (bool, time.Time) {
+	if path == "" {
+		return false, time.Time{}
 	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return false, time.Time{}
+	}
+	return true, st.ModTime()
 }
 
 // statusSnapshot 供桌面顶栏/状态区刷新。
@@ -459,6 +470,7 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/open", Desc: "打开会话"},
 		{Name: "/rename", Desc: "重命名会话"},
 		{Name: "/delete", Desc: "删除会话"},
+		{Name: "/memory", Desc: "列出长期记忆"},
 		{Name: "/undo", Desc: "撤销最近一次写文件"},
 		{Name: "/permissions", Desc: "查看工具权限规则"},
 		{Name: "/save", Desc: "保存会话"},
@@ -599,6 +611,9 @@ func (a *app) handleCommand(line string) bool {
 			a.ui.Error(err.Error())
 			break
 		}
+		if err := plan.Activate(a.workDir, newID); err != nil {
+			a.ui.Error("任务清单：" + err.Error())
+		}
 		a.ui.Info(fmt.Sprintf("（已新建并切换到会话 %s）", newID))
 	case "/open":
 		if len(args) < 1 {
@@ -614,6 +629,9 @@ func (a *app) handleCommand(line string) bool {
 		if err := mgr.Open(args[0]); err != nil {
 			a.ui.Error(err.Error())
 			break
+		}
+		if err := plan.Activate(a.workDir, mgr.Current()); err != nil {
+			a.ui.Error("任务清单：" + err.Error())
 		}
 		a.ui.Info(fmt.Sprintf("（已切换到会话 %s）", mgr.Current()))
 	case "/rename":
@@ -637,6 +655,9 @@ func (a *app) handleCommand(line string) bool {
 			a.ui.Error("保存失败：" + err.Error())
 			break
 		}
+		if err := plan.Move(a.workDir, oldID, newID); err != nil {
+			a.ui.Error("任务清单：" + err.Error())
+		}
 		a.ui.Info(fmt.Sprintf("（会话 %s 已重命名为 %s）", oldID, newID))
 	case "/delete":
 		if len(args) != 1 {
@@ -647,6 +668,9 @@ func (a *app) handleCommand(line string) bool {
 			a.ui.Info("（已取消）")
 			break
 		}
+		if err := plan.Drop(a.workDir, args[0]); err != nil {
+			a.ui.Error("任务清单：" + err.Error())
+		}
 		if err := mgr.Delete(args[0]); err != nil {
 			a.ui.Error(err.Error())
 			break
@@ -655,7 +679,17 @@ func (a *app) handleCommand(line string) bool {
 			a.ui.Error("保存失败：" + err.Error())
 			break
 		}
+		if err := plan.Activate(a.workDir, mgr.Current()); err != nil {
+			a.ui.Error("任务清单：" + err.Error())
+		}
 		a.ui.Info(fmt.Sprintf("（已删除会话 %s，当前会话 %s）", args[0], mgr.Current()))
+	case "/memory":
+		lines, err := memory.Lines()
+		if err != nil {
+			a.ui.Error("记忆：" + err.Error())
+			break
+		}
+		a.ui.Info(strings.Join(lines, "\n"))
 	case "/undo":
 		msg, err := tools.UndoLast()
 		if err != nil {
@@ -728,8 +762,9 @@ func helpText() string {
   /open <id> [目录]  切换到已有会话（带目录时先切项目再打开）
   /rename [旧] <新>  重命名会话（省略旧 ID 即当前会话）
   /delete <id>       删除会话（需确认；删当前会话会切到最近的另一个）
-  /undo              撤销最近一次 write/patch（单步，不撤销 shell）
-  /permissions       查看工具权限规则（.geekagent/GeekAgent.json + 内置默认）
+  /memory            列出当前项目的长期记忆（.geekagent/memory.json）
+  /undo              撤销最近一次 write/patch（最多 20 步，不撤销 shell）
+  /permissions       查看工具权限规则（项目与用户 GeekAgent.json，项目优先）
   /save              保存全部会话到 %s
   /load              从磁盘重新加载（丢弃未保存改动）
   /reset             清空当前会话记忆

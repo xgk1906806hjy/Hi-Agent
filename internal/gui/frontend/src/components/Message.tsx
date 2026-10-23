@@ -9,7 +9,7 @@ export function Message({ item }: { item: Item }) {
   if (item.kind === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-user px-3.5 py-2.5 text-[14px] leading-relaxed text-ink">
+        <div className="max-w-[78%] whitespace-pre-wrap rounded-[16px] rounded-br-[5px] border border-[#dbe4ff] bg-user px-3.5 py-2.5 text-[14px] leading-relaxed tracking-tight text-ink dark:border-accent/25">
           {item.text}
         </div>
       </div>
@@ -33,13 +33,18 @@ export function Message({ item }: { item: Item }) {
   return (
     <div className="max-w-[92%]">
       {think || thinking ? (
-        <details className="mb-1.5 rounded-lg border border-line bg-panel/60 px-2.5 py-1.5 text-[12.5px] text-muted" open={thinking}>
-          <summary className="cursor-pointer select-none font-medium">{thinking ? "思考中…" : "思考过程"}</summary>
-          <pre className="mt-1.5 whitespace-pre-wrap font-sans leading-relaxed opacity-90">{think.trim()}</pre>
+        <details
+          className="mb-2 rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px] text-muted"
+          open={thinking}
+        >
+          <summary className="cursor-pointer select-none font-medium tracking-tight">
+            {thinking ? "思考中…" : "思考过程"}
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap font-sans leading-relaxed opacity-90">{think.trim()}</pre>
         </details>
       ) : null}
       {body ? (
-        <div className="prose prose-sm max-w-none prose-headings:mb-2 prose-headings:mt-3 prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5">
+        <div className="prose prose-sm max-w-none tracking-tight prose-headings:mb-2 prose-headings:mt-3 prose-headings:tracking-tight prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5">
           <Suspense fallback={<div className="whitespace-pre-wrap">{body}</div>}>
             <Markdown text={body} />
           </Suspense>

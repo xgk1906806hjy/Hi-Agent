@@ -3,7 +3,7 @@ import { BridgeUnavailableError, connectBridge } from "./bridge";
 import { attachBridge, useStore } from "./store";
 import { pushText } from "./store/thread";
 import { Sidebar } from "./components/Sidebar";
-import { TopBar } from "./components/TopBar";
+import { TitleBar } from "./components/TitleBar";
 import { Thread } from "./components/Thread";
 import { Composer } from "./components/Composer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -33,16 +33,18 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-full bg-panel text-ink">
-      <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
-        {bootError ? (
-          <div className="border-b border-line bg-red-50 px-4 py-2 text-sm text-danger">{bootError}</div>
-        ) : null}
-        <Thread />
-        <Composer />
-      </main>
+    <div className="flex h-full flex-col overflow-hidden bg-bg text-ink">
+      <TitleBar />
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+          {bootError ? (
+            <div className="border-b border-line bg-accent-soft px-4 py-2 text-sm text-danger">{bootError}</div>
+          ) : null}
+          <Thread />
+          <Composer />
+        </main>
+      </div>
       <ConfirmDialog />
       <SelectDialog />
     </div>

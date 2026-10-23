@@ -57,17 +57,35 @@ func ParseRule(s string) Rule {
 	return Rule{Tool: s}
 }
 
-// Policy 配置规则 + 内置默认。判定顺序：配置 deny > ask > allow，均未命中时用默认。
+// Policy 项目规则、用户规则与内置默认。
+// 判定顺序：项目 deny、项目 ask、项目 allow、用户 deny、用户 ask、用户 allow、内置默认。
 type Policy struct {
 	Allow  []Rule
 	AskR   []Rule
 	DenyR  []Rule
-	Source string // 配置文件绝对路径；空表示仅内置默认
+	Source string // 项目配置绝对路径；空表示该层没有文件
+
+	UserAllow  []Rule
+	UserAsk    []Rule
+	UserDeny   []Rule
+	UserSource string // 用户配置绝对路径
+}
+
+// resolveUserConfig 测试可替换，避免读到本机 ~/.hi-agent。
+var resolveUserConfig = UserConfigPath
+
+// UserConfigPath 用户级权限文件 ~/.hi-agent/GeekAgent.json。取不到主目录时为空。
+func UserConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".hi-agent", "GeekAgent.json")
 }
 
 // 内置默认：只读工具 allow，会改动环境的工具 ask，其余（含未知工具）deny。
 var (
-	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "todo_write", "delegate_task"}
+	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "todo_write", "delegate_task", "memory_write", "memory_search"}
 	defaultAsk   = []string{"run_shell", "write", "patch"}
 )
 
@@ -82,26 +100,40 @@ type fileConfig struct {
 	} `json:"permissions"`
 }
 
-// Load 读取 root 下的 GeekAgent.json。文件不存在返回默认策略；
-// JSON 损坏时返回默认策略和错误（调用方提示后继续运行）。
+// Load 合并项目 `.geekagent/GeekAgent.json` 与用户 `~/.hi-agent/GeekAgent.json`。
+// 某一层文件不存在则该层为空；JSON 损坏则该层回退为空并返回错误，另一层仍生效。
 func Load(root string) (*Policy, error) {
-	path := filepath.Join(root, filepath.FromSlash(ConfigPath))
+	p := Default()
+	var errs []error
+	allow, ask, deny, src, err := loadLayer(filepath.Join(root, filepath.FromSlash(ConfigPath)))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	p.Allow, p.AskR, p.DenyR, p.Source = allow, ask, deny, src
+	uAllow, uAsk, uDeny, uSrc, uErr := loadLayer(resolveUserConfig())
+	if uErr != nil {
+		errs = append(errs, uErr)
+	}
+	p.UserAllow, p.UserAsk, p.UserDeny, p.UserSource = uAllow, uAsk, uDeny, uSrc
+	return p, errors.Join(errs...)
+}
+
+func loadLayer(path string) (allow, ask, deny []Rule, source string, err error) {
+	if path == "" {
+		return nil, nil, nil, "", nil
+	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Default(), nil
+		return nil, nil, nil, "", nil
 	}
 	if err != nil {
-		return Default(), err
+		return nil, nil, nil, "", err
 	}
 	var cfg fileConfig
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		return Default(), fmt.Errorf("解析 %s 失败：%w（已回退默认策略）", path, err)
+		return nil, nil, nil, "", fmt.Errorf("解析 %s 失败：%w（该层已忽略）", path, err)
 	}
-	p := &Policy{Source: path}
-	p.Allow = parseRules(cfg.Permissions.Allow)
-	p.AskR = parseRules(cfg.Permissions.Ask)
-	p.DenyR = parseRules(cfg.Permissions.Deny)
-	return p, nil
+	return parseRules(cfg.Permissions.Allow), parseRules(cfg.Permissions.Ask), parseRules(cfg.Permissions.Deny), path, nil
 }
 
 func parseRules(in []string) []Rule {
@@ -125,6 +157,15 @@ func (p *Policy) Decide(tool, argsJSON string) Decision {
 			return Ask
 		}
 		if matchAny(p.Allow, tool, subject) {
+			return Allow
+		}
+		if matchAny(p.UserDeny, tool, subject) {
+			return Deny
+		}
+		if matchAny(p.UserAsk, tool, subject) {
+			return Ask
+		}
+		if matchAny(p.UserAllow, tool, subject) {
 			return Allow
 		}
 	}
@@ -204,22 +245,33 @@ func Wildcard(pattern, s string) bool {
 // Lines 供 /permissions 展示当前生效规则与来源。
 func (p *Policy) Lines() []string {
 	var out []string
-	if p != nil && p.Source != "" {
-		out = append(out, "配置文件："+p.Source)
-		out = append(out, "  deny： "+joinRules(p.DenyR))
-		out = append(out, "  ask：  "+joinRules(p.AskR))
-		out = append(out, "  allow："+joinRules(p.Allow))
-	} else {
-		out = append(out, "配置文件：无（可在 "+ConfigPath+" 中配置 permissions.allow/ask/deny）")
+	if p == nil {
+		p = Default()
 	}
+	out = append(out, layerLines("项目", p.Source, ConfigPath, p.DenyR, p.AskR, p.Allow)...)
+	userHint := "~/.hi-agent/GeekAgent.json"
+	out = append(out, layerLines("用户", p.UserSource, userHint, p.UserDeny, p.UserAsk, p.UserAllow)...)
 	out = append(out,
-		"内置默认（配置未命中时）：",
+		"内置默认（两层都未命中时）：",
 		"  allow："+strings.Join(defaultAllow, ", "),
 		"  ask：  "+strings.Join(defaultAsk, ", "),
 		"  其余工具（含未知工具）：deny",
-		"优先级：配置 deny > ask > allow > 内置默认；规则写法 工具名 或 工具名:通配（* 任意串，? 单字符）",
+		"优先级：项目 deny > 项目 ask > 项目 allow > 用户 deny > 用户 ask > 用户 allow > 内置默认",
+		"规则写法：工具名 或 工具名:通配（* 任意串，? 单字符）",
 	)
 	return out
+}
+
+func layerLines(title, source, hint string, deny, ask, allow []Rule) []string {
+	if source == "" {
+		return []string{title + "配置：无（可写 " + hint + "）"}
+	}
+	return []string{
+		title + "配置：" + source,
+		"  deny： " + joinRules(deny),
+		"  ask：  " + joinRules(ask),
+		"  allow：" + joinRules(allow),
+	}
 }
 
 func joinRules(rs []Rule) string {

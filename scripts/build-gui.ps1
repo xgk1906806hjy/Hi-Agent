@@ -38,6 +38,17 @@ $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $exe = Join-Path $dist "Hi-agent.exe"
 
+# 嵌入任务栏图标（Wails 读取资源 ID 3）；缺 syso 时用 build/appicon.ico 生成。
+$syso = Join-Path $root "cmd\hi-agent\rsrc_windows_amd64.syso"
+$ico = Join-Path $root "internal\gui\build\appicon.ico"
+if (-not (Test-Path $syso) -and (Test-Path $ico)) {
+    Write-Host "Generating window icon resource ..."
+    $gen = Join-Path $root "scripts\gen-win-icon.go"
+    if (Test-Path $gen) {
+        go run $gen
+    }
+}
+
 Write-Host "Building $exe ..."
 go build -tags "desktop,production" -ldflags "-s -w -H=windowsgui -X main.defaultUI=gui" -o $exe ./cmd/hi-agent
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

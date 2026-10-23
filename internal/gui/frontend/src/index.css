@@ -2,55 +2,60 @@
 @plugin "@tailwindcss/typography";
 @import "highlight.js/styles/github.css";
 
+/* 方向 C · 精密纸面：浅暖灰、细线、字重与间距 */
 @theme {
-  --font-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  --color-ink: #1a1a1a;
-  --color-muted: #6b6b6b;
-  --color-line: #e6e6e6;
-  --color-panel: #f7f7f5;
+  --font-sans: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --color-ink: #1c1b19;
+  --color-muted: #6f6b63;
+  --color-faint: #9a958c;
+  --color-line: #e3e0d8;
+  --color-line-strong: #d4d0c6;
+  --color-panel: #efeee9;
+  --color-bg: #f6f5f2;
   --color-surface: #ffffff;
-  --color-accent: #2563eb;
-  --color-accent-soft: #eff6ff;
-  --color-user: #eef4ff;
+  --color-accent: #2f6fed;
+  --color-accent-soft: #eaf0ff;
+  --color-user: #eef2ff;
   --color-danger: #b91c1c;
   --color-warn: #92400e;
-  --color-add: #15803d;
+  --color-add: #2f7a4a;
   --color-del: #b91c1c;
 }
 
 :root {
-  color-scheme: light dark;
-  --scroll-thumb: #cfcfcf;
-  --scroll-thumb-hover: #b5b5b5;
-  --code-bg: #f4f4f5;
+  color-scheme: light;
+  --scroll-thumb: #d0ccc2;
+  --scroll-thumb-hover: #b8b3a8;
+  --code-bg: #f0eee8;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-ink: #e8e8e6;
-    --color-muted: #9a9a96;
-    --color-line: #2e2e2c;
-    --color-panel: #1b1b1a;
-    --color-surface: #232322;
-    --color-accent: #5b8def;
-    --color-accent-soft: #1e2a40;
-    --color-user: #26324a;
-    --color-danger: #f87171;
-    --color-warn: #fbbf24;
-    --color-add: #4ade80;
-    --color-del: #f87171;
-    --scroll-thumb: #3d3d3b;
-    --scroll-thumb-hover: #52524f;
-    --code-bg: #1a1a19;
-  }
+:root.dark {
+  color-scheme: dark;
+  --color-ink: #f0ebe3;
+  --color-muted: #a39e94;
+  --color-faint: #7a746a;
+  --color-line: #3a3630;
+  --color-line-strong: #4a453e;
+  --color-panel: #221f1c;
+  --color-bg: #1a1917;
+  --color-surface: #2a2724;
+  --color-accent: #7aa2ff;
+  --color-accent-soft: #24314d;
+  --color-user: #2a3348;
+  --color-danger: #f87171;
+  --color-warn: #fbbf24;
+  --color-add: #4ade80;
+  --color-del: #f87171;
+  --scroll-thumb: #4a453e;
+  --scroll-thumb-hover: #5c564d;
+  --code-bg: #1f1d1a;
 
-  /* highlight.js github-dark 主要配色，覆盖浅色 github.css */
-  .hljs {
+  & .hljs {
     color: #c9d1d9;
     background: transparent;
   }
-  .hljs-doctag,
+  & .hljs-doctag,
   .hljs-keyword,
   .hljs-meta .hljs-keyword,
   .hljs-template-tag,
@@ -59,12 +64,12 @@
   .hljs-variable.language_ {
     color: #ff7b72;
   }
-  .hljs-title,
+  & .hljs-title,
   .hljs-title.class_,
   .hljs-title.function_ {
     color: #d2a8ff;
   }
-  .hljs-attr,
+  & .hljs-attr,
   .hljs-attribute,
   .hljs-literal,
   .hljs-meta,
@@ -76,40 +81,40 @@
   .hljs-variable {
     color: #79c0ff;
   }
-  .hljs-meta .hljs-string,
+  & .hljs-meta .hljs-string,
   .hljs-regexp,
   .hljs-string {
     color: #a5d6ff;
   }
-  .hljs-built_in,
+  & .hljs-built_in,
   .hljs-symbol {
     color: #ffa657;
   }
-  .hljs-code,
+  & .hljs-code,
   .hljs-comment,
   .hljs-formula {
     color: #8b949e;
   }
-  .hljs-name,
+  & .hljs-name,
   .hljs-quote,
   .hljs-selector-pseudo,
   .hljs-selector-tag {
     color: #7ee787;
   }
-  .hljs-subst {
+  & .hljs-subst {
     color: #c9d1d9;
   }
-  .hljs-section {
+  & .hljs-section {
     color: #1f6feb;
   }
-  .hljs-bullet {
+  & .hljs-bullet {
     color: #f2cc60;
   }
-  .hljs-addition {
+  & .hljs-addition {
     color: #aff5b4;
     background-color: #033a16;
   }
-  .hljs-deletion {
+  & .hljs-deletion {
     color: #ffdcd7;
     background-color: #67060c;
   }
@@ -125,8 +130,9 @@ body,
 body {
   font-family: var(--font-sans);
   color: var(--color-ink);
-  background: var(--color-panel);
+  background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.011em;
 }
 
 * {
@@ -163,7 +169,7 @@ body {
 .prose :where(pre) {
   background: var(--code-bg);
   border: 1px solid var(--color-line);
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
 }
 .prose :where(code) {
   font-family: var(--font-mono);
@@ -171,4 +177,15 @@ body {
 }
 .prose :where(a) {
   color: var(--color-accent);
+}
+
+/* Wails 无边框窗口：标题栏可拖拽，按钮不可拖 */
+[data-wails-drag] {
+  --wails-draggable: drag;
+  -webkit-app-region: drag;
+}
+[data-wails-no-drag],
+[data-wails-no-drag] * {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
 }

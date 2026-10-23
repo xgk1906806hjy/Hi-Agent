@@ -1,9 +1,12 @@
-// Package plan 保存当前进程的任务清单（Day 9）。只在内存中，不落盘；
-// 同时最多一项 in_progress。切换项目时由 REPL 调用 Reset。
+// Package plan 保存当前会话的任务清单（Day 9）。
+// 按会话写入工作区 `.geekagent/todos.json`；同时最多一项 in_progress。
 package plan
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -17,14 +20,23 @@ const (
 
 // Item 一条任务。
 type Item struct {
-	ID      string
-	Content string
-	Status  string
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Status  string `json:"status"`
+}
+
+const fileRel = ".geekagent/todos.json"
+
+type fileData struct {
+	Sessions map[string][]Item `json:"sessions"`
 }
 
 var (
-	mu    sync.Mutex
-	items []Item
+	mu      sync.Mutex
+	items   []Item
+	root    string
+	session string
+	bound   bool
 )
 
 // List 返回清单副本。
@@ -36,11 +48,55 @@ func List() []Item {
 	return out
 }
 
-// Reset 清空清单。
+// Reset 清空内存清单并解除落盘绑定。测试与未绑定场景使用。
 func Reset() {
 	mu.Lock()
 	items = nil
+	root, session = "", ""
+	bound = false
 	mu.Unlock()
+}
+
+// Activate 先保存当前会话的清单，再载入 dir 下目标会话的清单。首次调用只载入。
+func Activate(dir, id string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if bound {
+		if err := saveLocked(); err != nil {
+			return err
+		}
+	}
+	root, session = dir, id
+	items = loadSession(dir, id)
+	bound = true
+	return nil
+}
+
+// Move 把清单从旧会话 ID 挪到新 ID。当前绑定着旧 ID 时，内存清单跟过去。
+func Move(dir, oldID, newID string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := moveKey(dir, oldID, newID); err != nil {
+		return err
+	}
+	if bound && sameDir(root, dir) && session == oldID {
+		session = newID
+	}
+	return nil
+}
+
+// Drop 从文件里去掉该会话的清单。去掉的是当前绑定时，内存先清空，避免随后又写回去。
+func Drop(dir, id string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := dropKey(dir, id); err != nil {
+		return err
+	}
+	if bound && sameDir(root, dir) && session == id {
+		session = ""
+		items = nil
+	}
+	return nil
 }
 
 // Apply 按 ID 合并更新。新任务必须有 content；同一次调用里多项 in_progress 时，最后一项保留，其余降为 pending。
@@ -88,6 +144,9 @@ func Apply(updates []Item) (string, error) {
 				items[i].Status = Pending
 			}
 		}
+	}
+	if err := saveLocked(); err != nil {
+		return formatLocked(), err
 	}
 	return formatLocked(), nil
 }
@@ -138,4 +197,96 @@ func valid(s string) bool {
 	default:
 		return false
 	}
+}
+
+func saveLocked() error {
+	if !bound || root == "" || session == "" {
+		return nil
+	}
+	data := readFile(root)
+	if data.Sessions == nil {
+		data.Sessions = map[string][]Item{}
+	}
+	data.Sessions[session] = append([]Item(nil), items...)
+	return writeFile(root, data)
+}
+
+func loadSession(dir, id string) []Item {
+	if dir == "" || id == "" {
+		return nil
+	}
+	data := readFile(dir)
+	src := data.Sessions[id]
+	if len(src) == 0 {
+		return nil
+	}
+	return append([]Item(nil), src...)
+}
+
+func moveKey(dir, oldID, newID string) error {
+	if dir == "" || oldID == "" || oldID == newID {
+		return nil
+	}
+	data := readFile(dir)
+	src, ok := data.Sessions[oldID]
+	if !ok {
+		return nil
+	}
+	if data.Sessions == nil {
+		data.Sessions = map[string][]Item{}
+	}
+	data.Sessions[newID] = src
+	delete(data.Sessions, oldID)
+	return writeFile(dir, data)
+}
+
+func dropKey(dir, id string) error {
+	if dir == "" || id == "" {
+		return nil
+	}
+	data := readFile(dir)
+	if _, ok := data.Sessions[id]; !ok {
+		return nil
+	}
+	delete(data.Sessions, id)
+	return writeFile(dir, data)
+}
+
+func readFile(dir string) fileData {
+	b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(fileRel)))
+	if err != nil {
+		return fileData{Sessions: map[string][]Item{}}
+	}
+	var data fileData
+	if err := json.Unmarshal(b, &data); err != nil || data.Sessions == nil {
+		return fileData{Sessions: map[string][]Item{}}
+	}
+	return data
+}
+
+func writeFile(dir string, data fileData) error {
+	if data.Sessions == nil {
+		data.Sessions = map[string][]Item{}
+	}
+	path := filepath.Join(dir, filepath.FromSlash(fileRel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return a == b
+	}
+	aa, err1 := filepath.Abs(a)
+	bb, err2 := filepath.Abs(b)
+	if err1 != nil || err2 != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return strings.EqualFold(filepath.Clean(aa), filepath.Clean(bb))
 }

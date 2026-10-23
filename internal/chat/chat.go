@@ -9,6 +9,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
@@ -32,6 +33,8 @@ const (
 // Chat 持有 history（即 messages），提供流式回复与工具调用循环。
 type Chat struct {
 	client  *openai.Client
+	baseURL string
+	apiKey  string
 	model   string
 	history []openai.ChatCompletionMessage
 
@@ -61,6 +64,8 @@ func New(baseURL, apiKey, model string) *Chat {
 func (c *Chat) Reconfigure(baseURL, apiKey, model string) {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = strings.TrimRight(baseURL, "/")
+	c.baseURL = cfg.BaseURL
+	c.apiKey = apiKey
 	c.client = openai.NewClientWithConfig(cfg)
 	c.model = model
 }
@@ -138,7 +143,7 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 
 		stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 			Model:         c.model,
-			Messages:      c.history,
+			Messages:      outboundMessages(c.history),
 			Tools:         openaiTools,
 			Stream:        true,
 			StreamOptions: streamOptions(),
@@ -320,7 +325,7 @@ func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatComp
 		return ErrInterrupted
 	}
 
-	msgs := append(append([]openai.ChatCompletionMessage(nil), c.history...), openai.ChatCompletionMessage{
+	msgs := outboundMessages(c.history, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: wrapUpSystem,
 	})
@@ -469,30 +474,55 @@ func (c *Chat) Status() string {
 	)
 }
 
-const delegateSystem = "你是子任务执行者。只根据这一次任务作答，不要调用工具，也不要假设存在其它对话上下文。回答尽量短而完整。"
+// delegateDepth 限制子任务只能再委派一层。大于 0 表示当前正在跑子对话。
+var delegateDepth atomic.Int32
 
-// Delegate 用同一套端点与模型完成一个子任务。独立 history、不带工具，不改动当前对话。
-// 用量计入累计与本轮，不刷新上下文占用（子任务不进入主 history）。
-func (c *Chat) Delegate(ctx context.Context, task string) (string, error) {
+// Delegate 复制主 history，用新的 Chat 跑一轮带工具的 StreamReply。
+// 子对话的 history 不写回主对话。再委派直接拒绝。onDelta 收到子对话的正文与进度。
+// 用量计入主对话的本轮与累计，不刷新主对话的上下文占用。
+func (c *Chat) Delegate(ctx context.Context, task string, onDelta func(string)) (string, error) {
 	task = strings.TrimSpace(task)
 	if task == "" {
 		return "", fmt.Errorf("任务为空")
 	}
-	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: c.model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: delegateSystem},
-			{Role: openai.ChatMessageRoleUser, Content: task},
-		},
-	})
-	if err != nil {
-		return "", err
+	if delegateDepth.Load() > 0 {
+		return "不能再委派", nil
 	}
-	c.recordUsage(&resp.Usage, false)
-	if len(resp.Choices) == 0 {
+	parent := cloneMessages(c.history)
+	child := New(c.baseURL, c.apiKey, c.model)
+	child.SetHistory(parent)
+	delegateDepth.Add(1)
+	defer delegateDepth.Add(-1)
+
+	var answer strings.Builder
+	err := child.StreamReply(ctx, task, func(delta string) {
+		if !strings.HasPrefix(delta, "\n[") {
+			answer.WriteString(delta)
+		}
+		if onDelta != nil {
+			onDelta(delta)
+		}
+	})
+	c.turnUsage.Prompt += child.turnUsage.Prompt
+	c.turnUsage.Completion += child.turnUsage.Completion
+	c.turnUsage.Requests += child.turnUsage.Requests
+	c.cumUsage.Prompt += child.turnUsage.Prompt
+	c.cumUsage.Completion += child.turnUsage.Completion
+	c.cumUsage.Requests += child.turnUsage.Requests
+	if c.onUsage != nil {
+		c.onUsage()
+	}
+	text := strings.TrimSpace(answer.String())
+	if err != nil {
+		if text == "" {
+			return "", err
+		}
+		return text, err
+	}
+	if text == "" {
 		return "(子任务无输出)", nil
 	}
-	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
+	return text, nil
 }
 
 // History 返回当前 history 的深拷贝（供会话持久化）。

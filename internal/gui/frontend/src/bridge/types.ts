@@ -120,8 +120,13 @@ export interface Bridge {
   removeProject(path: string): Promise<void>;
   openSession(path: string, id: string): void;
   newSession(): void;
-  renameSession(oldId: string, newId: string): void;
-  deleteSession(id: string): void;
+  renameSession(path: string, oldId: string, newId: string): void;
+  deleteSession(path: string, id: string): void;
+  /** 把原生窗口背景设为 light 或 dark，与页面主题一致。 */
+  setTheme(appearance: "light" | "dark"): void;
+  windowMinimise(): void;
+  windowToggleMaximise(): void;
+  windowClose(): void;
   on<E extends EventName>(event: E, fn: (payload: EventMap[E]) => void): () => void;
 }
 

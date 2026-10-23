@@ -10,7 +10,7 @@ import (
 func registerPlan() {
 	Register(Tool{
 		Name:        "todo_write",
-		Description: "维护当前任务清单。按 id 合并；status 取 pending、in_progress、completed、cancelled。同时只能有一项 in_progress，新的进行中会把原来的降为 pending。清单只在本次进程有效。",
+		Description: "维护当前会话的任务清单，写入工作区 .geekagent/todos.json。按 id 合并；status 取 pending、in_progress、completed、cancelled。同时只能有一项 in_progress，新的进行中会把原来的降为 pending。",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

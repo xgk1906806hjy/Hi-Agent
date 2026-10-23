@@ -8,49 +8,51 @@ import (
 	"path/filepath"
 )
 
-// UndoPath 单步撤销记录（相对当前工作目录，随项目切换而切换）。
+// UndoPath 文件撤销栈（相对当前工作目录，随项目切换而切换）。最多 20 条。
 const UndoPath = ".geekagent/undo.json"
 
-// undoRecord 最近一次 write/patch 落盘前的状态。
+const maxUndo = 20
+
+// undoRecord 一次 write/patch 落盘前的状态。
 type undoRecord struct {
 	Path       string `json:"path"` // 绝对路径
 	Existed    bool   `json:"existed"`
 	OldContent string `json:"oldContent"`
 }
 
-// saveUndo 覆盖记录最近一次写入前的状态（只保留一步）。
+type undoFile struct {
+	Entries []undoRecord `json:"entries"`
+}
+
+// saveUndo 把一次写入前的状态压栈，超过 20 条时丢掉最旧的。
 func saveUndo(path string, existed bool, old string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(undoRecord{Path: abs, Existed: existed, OldContent: old}, "", "  ")
-	if err != nil {
-		return err
+	entries, err := loadUndo()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		entries = nil
 	}
-	file := filepath.FromSlash(UndoPath)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return err
+	entries = append(entries, undoRecord{Path: abs, Existed: existed, OldContent: old})
+	if len(entries) > maxUndo {
+		entries = entries[len(entries)-maxUndo:]
 	}
-	return os.WriteFile(file, b, 0o644)
+	return writeUndo(entries)
 }
 
-// UndoLast 撤销最近一次 write/patch：原本存在则写回旧内容，原本不存在则删除文件。
-// 恢复前展示 diff 并确认；成功后清空记录。不撤销 shell 的副作用，也不支持多步。
+// UndoLast 弹出最近一次 write/patch：原本存在则写回旧内容，原本不存在则删除文件。
+// 恢复前展示 diff 并确认。栈空时提示没有可撤销的写入。不撤销 shell 的副作用。
 func UndoLast() (string, error) {
-	file := filepath.FromSlash(UndoPath)
-	b, err := os.ReadFile(file)
-	if errors.Is(err, os.ErrNotExist) {
+	entries, err := loadUndo()
+	if errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0) {
 		return "没有可撤销的写入", nil
 	}
 	if err != nil {
+		_ = os.Remove(filepath.FromSlash(UndoPath))
 		return "", err
 	}
-	var rec undoRecord
-	if err := json.Unmarshal(b, &rec); err != nil || rec.Path == "" {
-		_ = os.Remove(file)
-		return "", fmt.Errorf("撤销记录损坏，已清除")
-	}
+	rec := entries[len(entries)-1]
 	cur := ""
 	if data, err := os.ReadFile(rec.Path); err == nil {
 		cur = string(data)
@@ -72,9 +74,46 @@ func UndoLast() (string, error) {
 	} else if err := os.Remove(rec.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	_ = os.Remove(file)
+	if err := writeUndo(entries[:len(entries)-1]); err != nil {
+		return "", err
+	}
 	if rec.Existed {
 		return "已恢复 " + rec.Path, nil
 	}
 	return "已删除 " + rec.Path, nil
+}
+
+func loadUndo() ([]undoRecord, error) {
+	b, err := os.ReadFile(filepath.FromSlash(UndoPath))
+	if err != nil {
+		return nil, err
+	}
+	var stack undoFile
+	if err := json.Unmarshal(b, &stack); err == nil && stack.Entries != nil {
+		return stack.Entries, nil
+	}
+	var one undoRecord
+	if err := json.Unmarshal(b, &one); err == nil && one.Path != "" {
+		return []undoRecord{one}, nil
+	}
+	return nil, fmt.Errorf("撤销记录损坏，已清除")
+}
+
+func writeUndo(entries []undoRecord) error {
+	file := filepath.FromSlash(UndoPath)
+	if len(entries) == 0 {
+		err := os.Remove(file)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(undoFile{Entries: entries}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, b, 0o644)
 }

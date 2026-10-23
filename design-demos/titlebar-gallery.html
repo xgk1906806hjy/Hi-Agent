@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Hi-agent · 顶栏与图标设计</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #efeee9; --surface: #fff; --ink: #1c1b19;
+    --muted: #6f6b63; --faint: #9a958c; --line: #e3e0d8; --line-strong: #d4d0c6;
+    --accent: #2f6fed; --accent-soft: #eaf0ff; --user: #eef2ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: #e8e5dc;
+    font-family: Inter, system-ui, sans-serif; color: var(--ink);
+  }
+  h1 { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.03em; }
+  .intro { color: var(--muted); font-size: 13px; max-width: 720px; line-height: 1.55; margin-bottom: 28px; }
+  section { margin-bottom: 36px; }
+  .cap { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; gap: 12px; }
+  .cap strong { font-size: 14px; }
+  .cap span { font-size: 12px; color: var(--faint); }
+  .window {
+    width: min(1100px, 100%); height: 420px; border: 1px solid var(--line-strong);
+    border-radius: 12px; overflow: hidden; background: var(--bg);
+    box-shadow: 0 20px 50px rgba(40,35,25,.1); display: grid;
+    grid-template-rows: auto auto 1fr auto;
+  }
+  .window.merged { grid-template-rows: auto 1fr auto; }
+  /* icon mark */
+  .mark {
+    width: 16px; height: 16px; border-radius: 5px; flex: none;
+    background: linear-gradient(145deg, #4d84f5, #2f6fed 55%, #1f4fbf);
+    position: relative; box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .mark::after {
+    content: ""; position: absolute; inset: 3px; border: 1.5px solid rgba(255,255,255,.9);
+    border-radius: 50%; border-top-color: transparent; border-left-color: transparent;
+    transform: rotate(-35deg);
+  }
+  .mark.lg { width: 28px; height: 28px; border-radius: 8px; }
+  .mark.lg::after { inset: 5px; border-width: 2px; }
+  .mark.xl { width: 56px; height: 56px; border-radius: 14px; }
+  .mark.xl::after { inset: 11px; border-width: 2.5px; }
+
+  /* Variant 1 chrome */
+  .chrome {
+    height: 32px; display: flex; align-items: center; gap: 2px;
+    padding: 0 4px 0 10px; background: #f3f2ee; border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag; user-select: none;
+  }
+  .chrome .menus { display: flex; gap: 0; margin-left: 8px; flex: 1; }
+  .chrome .menus button, .chrome-m .menus button {
+    border: 0; background: transparent; font: inherit; font-size: 12.5px;
+    color: var(--ink); padding: 3px 9px; border-radius: 4px; cursor: default;
+  }
+  .chrome .menus button:hover, .chrome-m .menus button:hover { background: rgba(0,0,0,.06); }
+  .winbtns { display: flex; margin-left: auto; height: 100%; }
+  .winbtns button {
+    width: 46px; height: 100%; border: 0; background: transparent; color: var(--ink);
+    font-size: 11px; display: grid; place-items: center;
+  }
+  .winbtns button:hover { background: rgba(0,0,0,.06); }
+  .winbtns button.close:hover { background: #e81123; color: #fff; }
+
+  .topbar {
+    height: 48px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; border-bottom: 1px solid var(--line); background: rgba(246,245,242,.92);
+  }
+  .brand { font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
+  .brand em { font-style: normal; color: var(--muted); font-weight: 500; font-size: 12px; margin-left: 8px; }
+  .pills { display: flex; gap: 6px; }
+  .pill {
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+    border-radius: 999px; padding: 4px 10px; font-size: 11px; font-weight: 500;
+  }
+  .pill.a { background: var(--accent-soft); color: var(--accent); border-color: #d6e2ff; }
+
+  .body { display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
+  .side { background: var(--panel); border-right: 1px solid var(--line); padding: 12px; font-size: 12px; color: var(--muted); }
+  .main { padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+  .user {
+    align-self: flex-end; max-width: 70%; background: var(--user); border: 1px solid #dbe4ff;
+    padding: 8px 12px; border-radius: 14px 14px 4px 14px; font-size: 13px;
+  }
+  .bot { font-size: 13.5px; line-height: 1.55; color: #2a2824; max-width: 70%; }
+  .composer {
+    border-top: 1px solid var(--line); padding: 12px 16px; background: var(--panel);
+  }
+  .box {
+    border: 1px solid var(--line-strong); background: var(--surface); border-radius: 14px;
+    padding: 10px 12px; color: var(--faint); font-size: 13px;
+    box-shadow: 0 6px 18px rgba(40,35,25,.05);
+  }
+
+  /* Variant 2 merged */
+  .chrome-m {
+    height: 40px; display: flex; align-items: center; gap: 8px;
+    padding: 0 4px 0 12px; background: var(--bg); border-bottom: 1px solid var(--line);
+  }
+  .chrome-m .title { font-size: 12.5px; font-weight: 600; letter-spacing: -0.02em; margin-right: 4px; }
+  .chrome-m .spacer { flex: 1; }
+  .chrome-m .meta { display: flex; gap: 6px; align-items: center; margin-right: 4px; }
+  .chrome-m .meta .pill { padding: 2px 8px; font-size: 10.5px; }
+
+  /* Variant 3 brand */
+  .chrome-b {
+    height: 44px; display: flex; align-items: center; gap: 10px;
+    padding: 0 4px 0 12px; background: #f3f2ee; border-bottom: 1px solid var(--line);
+  }
+  .chrome-b .name { font-size: 13.5px; font-weight: 650; letter-spacing: -0.03em; }
+  .chrome-b .menus { display: flex; gap: 2px; margin-left: 8px; }
+  .chrome-b .menus button {
+    border: 0; background: transparent; font: inherit; font-size: 12.5px;
+    color: var(--muted); padding: 4px 9px; border-radius: 6px;
+  }
+  .chrome-b .menus button:hover { background: rgba(0,0,0,.05); color: var(--ink); }
+  .chrome-b .spacer { flex: 1; }
+  .chrome-b .session { font-size: 12px; color: var(--muted); margin-right: 8px; }
+
+  .icons {
+    display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap;
+    padding: 18px 20px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; max-width: 1100px;
+  }
+  .icon-card { text-align: center; }
+  .icon-card p { margin: 8px 0 0; font-size: 11px; color: var(--faint); }
+  .mark-tile {
+    width: 72px; height: 72px; border-radius: 18px; display: grid; place-items: center;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .pick {
+    margin-top: 8px; padding: 10px 14px; background: #fff8e8; border: 1px solid #ead9a8;
+    border-radius: 10px; font-size: 13px; color: #5c4b1e; max-width: 1100px;
+  }
+</style>
+</head>
+<body>
+  <h1>顶栏 + 图标 · 三版（精密纸面）</h1>
+  <p class="intro">
+    参照你给的系统菜单条：左图标、File / Edit / View / Help、右窗控。
+    下面三版只换顶层结构，对话区仍是方向 C。选一版后我再接到 Wails（无边框自定义标题栏 + 应用图标）。
+  </p>
+
+  <section>
+    <div class="cap"><strong>图标候选 · Orbit</strong><span>蓝圆角方块 + 斜切环，像「agent 在轨道上」</span></div>
+    <div class="icons">
+      <div class="icon-card"><div class="mark-tile"><div class="mark xl"></div></div><p>App Icon 56</p></div>
+      <div class="icon-card"><div class="mark-tile" style="width:48px;height:48px;border-radius:12px"><div class="mark lg"></div></div><p>32 / 任务栏</p></div>
+      <div class="icon-card"><div class="mark-tile" style="width:36px;height:36px;border-radius:10px"><div class="mark"></div></div><p>16 / 标题栏</p></div>
+      <div class="icon-card" style="display:flex;align-items:center;gap:10px;padding-bottom:8px">
+        <div class="mark"></div><span style="font-weight:600;letter-spacing:-0.02em">Hi-agent</span>
+        <p style="margin:0">标题栏用法</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="cap">
+      <strong>方案 1 · 系统双层</strong>
+      <span>最像截图：菜单条独立一层，下面保留产品顶栏（会话 / 主题 / 模型）</span>
+    </div>
+    <div class="window">
+      <div class="chrome">
+        <div class="mark"></div>
+        <div class="menus">
+          <button>File</button><button>Edit</button><button>View</button><button>Help</button>
+        </div>
+        <div class="winbtns">
+          <button aria-label="min">─</button>
+          <button aria-label="max">□</button>
+          <button class="close" aria-label="close">✕</button>
+        </div>
+      </div>
+      <div class="topbar">
+        <div class="brand">Hi-agent<em>缺口补齐与 Day10</em></div>
+        <div class="pills"><span class="pill">跟随系统</span><span class="pill">权限</span><span class="pill a">openai / gpt-5</span></div>
+      </div>
+      <div class="body">
+        <div class="side">项目 / 会话</div>
+        <div class="main">
+          <div class="user">先把顶栏和图标加上。</div>
+          <div class="bot">双层：系统菜单不挤产品状态，高度多约 32px。</div>
+        </div>
+      </div>
+      <div class="composer"><div class="box">发消息…</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="cap">
+      <strong>方案 2 · 合并单层（推荐）</strong>
+      <span>一条栏搞定：图标 · 菜单 · 会话状态 · 窗控，更干净</span>
+    </div>
+    <div class="window merged">
+      <div class="chrome-m">
+        <div class="mark"></div>
+        <span class="title">Hi-agent</span>
+        <div class="menus">
+          <button>File</button><button>Edit</button><button>View</button><button>Help</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="meta">
+          <span class="pill">缺口补齐与 Day10</span>
+          <span class="pill">跟随系统</span>
+          <span class="pill a">gpt-5</span>
+        </div>
+        <div class="winbtns">
+          <button>─</button><button>□</button><button class="close">✕</button>
+        </div>
+      </div>
+      <div class="body">
+        <div class="side">项目 / 会话</div>
+        <div class="main">
+          <div class="user">先把顶栏和图标加上。</div>
+          <div class="bot">合并后没有第二层顶栏，更接近现代桌面 Agent。</div>
+        </div>
+      </div>
+      <div class="composer"><div class="box">发消息…</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="cap">
+      <strong>方案 3 · 品牌优先</strong>
+      <span>图标略放大，产品名更醒目，菜单当次级文字</span>
+    </div>
+    <div class="window merged">
+      <div class="chrome-b">
+        <div class="mark lg"></div>
+        <span class="name">Hi-agent</span>
+        <div class="menus">
+          <button>File</button><button>Edit</button><button>View</button><button>Help</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="session">缺口补齐与 Day10</span>
+        <div class="winbtns">
+          <button>─</button><button>□</button><button class="close">✕</button>
+        </div>
+      </div>
+      <div class="body">
+        <div class="side">项目 / 会话</div>
+        <div class="main">
+          <div class="user">先把顶栏和图标加上。</div>
+          <div class="bot">品牌更强，状态信息偏少，主题/权限要进 View 菜单。</div>
+        </div>
+      </div>
+      <div class="composer"><div class="box">发消息…</div></div>
+    </div>
+  </section>
+
+  <div class="pick">
+    回复 <b>1</b> / <b>2</b> / <b>3</b>（或混合，例如「2 + 大一点图标」）。
+    选定后实现：Wails 无边框窗口、自定义标题栏拖拽与窗控、嵌入 Orbit 图标为 .ico / 前端 SVG。
+  </div>
+</body>
+</html>

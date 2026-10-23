@@ -170,4 +170,5 @@ func init() {
 	registerFiles()
 	registerPlan()
 	registerDelegate()
+	registerMemory()
 }

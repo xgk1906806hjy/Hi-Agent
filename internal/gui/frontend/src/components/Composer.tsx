@@ -71,10 +71,10 @@ export function Composer() {
   };
 
   return (
-    <div className="shrink-0 border-t border-line bg-surface px-4 py-3">
+    <div className="shrink-0 border-t border-line bg-gradient-to-b from-transparent to-panel/90 px-6 pb-[18px] pt-3.5">
       <div className="relative mx-auto max-w-3xl">
         {showMenu ? (
-          <ul className="absolute bottom-full left-0 z-20 mb-2 max-h-64 w-72 overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-lg">
+          <ul className="absolute bottom-full left-0 z-20 mb-2 max-h-64 w-80 overflow-y-auto rounded-xl border border-line bg-surface py-1 shadow-lg">
             {matches.map((c, i) => (
               <li key={c.name}>
                 <button
@@ -85,18 +85,18 @@ export function Composer() {
                   }}
                   onMouseEnter={() => setIndex(i)}
                   className={`flex w-full items-baseline gap-3 px-3 py-1.5 text-left text-[13px] ${
-                    i === index ? "bg-accent/10 text-ink" : "text-ink/80"
+                    i === index ? "bg-accent-soft text-ink" : "text-ink/80"
                   }`}
                 >
-                  <span className="font-mono">{c.name}</span>
+                  <span className="font-mono text-[12.5px]">{c.name}</span>
                   <span className="truncate text-xs text-muted">{c.desc}</span>
                 </button>
               </li>
             ))}
           </ul>
         ) : null}
-        {waiting ? <div className="mb-1.5 px-1 text-xs text-muted">{prompt}</div> : null}
-        <div className="flex items-end gap-2 rounded-2xl border border-line bg-panel px-3 py-2 shadow-sm focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/15">
+        {waiting ? <div className="mb-2 px-1 text-xs text-muted">{prompt}</div> : null}
+        <div className="flex items-end gap-2.5 rounded-2xl border border-line-strong bg-surface px-3.5 py-3 shadow-[0_8px_24px_rgba(40,35,25,0.06)] focus-within:border-[#b9c9f5] focus-within:shadow-[0_0_0_3px_rgba(47,111,237,0.12),0_8px_24px_rgba(40,35,25,0.06)] dark:focus-within:border-accent/40">
           <textarea
             ref={ta}
             rows={1}
@@ -104,16 +104,16 @@ export function Composer() {
             onChange={(e) => change(e.target.value)}
             onKeyDown={onKey}
             placeholder={busy ? "生成中… Shift+Enter 换行" : "发消息，或输入 / 查看命令 …"}
-            className="max-h-[180px] min-h-[24px] flex-1 resize-none bg-transparent py-1.5 text-[14px] leading-6 outline-none placeholder:text-muted/70"
+            className="max-h-[180px] min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[14px] leading-6 tracking-tight outline-none placeholder:text-faint"
           />
           {busy ? (
             <button
               type="button"
               title="停止"
               onClick={stop}
-              className="mb-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-ink text-surface hover:bg-ink/85"
+              className="mb-0.5 flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-ink text-surface hover:bg-ink/85"
             >
-              <Square size={12} fill="currentColor" />
+              <Square size={11} fill="currentColor" />
             </button>
           ) : (
             <button
@@ -121,20 +121,20 @@ export function Composer() {
               title="发送"
               disabled={!text.trim()}
               onClick={send}
-              className="mb-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white disabled:cursor-not-allowed disabled:opacity-35 hover:bg-accent/90"
+              className="mb-0.5 flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-accent text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] disabled:cursor-not-allowed disabled:opacity-35 hover:bg-accent/90"
             >
-              <ArrowUp size={16} strokeWidth={2.25} />
+              <ArrowUp size={15} strokeWidth={2.25} />
             </button>
           )}
         </div>
-        <div className="mt-1.5 flex gap-2 px-1 text-[11px] text-muted">
+        <div className="mt-2.5 flex gap-1.5 px-1 text-[11px] text-faint">
           {["/model", "/sessions", "/help"].map((c) => (
             <button
               key={c}
               type="button"
               disabled={busy}
               onClick={() => submit(c)}
-              className="rounded px-1 py-0.5 hover:bg-line/60 hover:text-ink disabled:opacity-40"
+              className="rounded-full px-2 py-0.5 hover:bg-line/50 hover:text-ink disabled:opacity-40"
             >
               {c}
             </button>

@@ -9,7 +9,7 @@ import (
 func registerDelegate() {
 	Register(Tool{
 		Name:        "delegate_task",
-		Description: "把一个可以独立完成的子任务交给另一个模型实例。该实例没有工具、也看不到当前对话，只返回一段文本。需要读文件、改文件或执行命令的任务不要委派。",
+		Description: "把一个子任务交给另一个模型实例。它能看到当前对话并使用工具，结果只以文本回到当前对话，不写回主历史。子任务里不能再委派。",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -41,5 +41,8 @@ func runDelegate(argsJSON string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// 子对话自己还会调工具，必须先放开本轮的执行锁。
+	execMu.Unlock()
+	defer execMu.Lock()
 	return fn(ctx, task)
 }

@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -25,7 +28,7 @@ type shellArgs struct {
 func registerShell() {
 	Register(Tool{
 		Name:        "run_shell",
-		Description: "在本地执行一条 shell 命令，返回合并后的标准输出/错误。执行前会向用户确认。纯查看文件请优先用 ls / read / glob；需要跑测试、装依赖、查进程时再用本工具。",
+		Description: "在当前工作区执行一条 shell 命令，返回合并后的标准输出/错误。工作目录固定为工作区；命令里的绝对路径和以 .. 开头的路径若越出工作区会被拒绝。这不是操作系统沙箱，环境变量展开等绕过挡不住。执行前会向用户确认。纯查看文件请优先用 ls / read / glob。",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -56,11 +59,19 @@ func runShell(argsJSON string) (string, error) {
 	if !ask(fmt.Sprintf("即将执行命令：%s", command)) {
 		return "已取消执行", nil
 	}
+	if msg := rejectEscapingPaths(command); msg != "" {
+		return msg, nil
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), shellTimeout)
+	parent := callCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, shellTimeout)
 	defer cancel()
 
 	cmd := shellCommand(ctx, command)
+	cmd.Dir = workspaceDir()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -71,6 +82,9 @@ func runShell(argsJSON string) (string, error) {
 
 	if ctx.Err() == context.DeadlineExceeded {
 		return truncate(fmt.Sprintf("命令执行失败（超时 %s）\n%s", shellTimeout, out)), nil
+	}
+	if parent.Err() != nil {
+		return truncate("命令已取消\n" + out), nil
 	}
 	if err != nil {
 		if out == "" {
@@ -90,6 +104,71 @@ func shellCommand(ctx context.Context, command string) *exec.Cmd {
 		return exec.CommandContext(ctx, "cmd", "/C", command)
 	}
 	return exec.CommandContext(ctx, "bash", "-c", command)
+}
+
+func workspaceDir() string {
+	if safe, err := guard("."); err == nil && filepath.IsAbs(safe) {
+		return safe
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
+}
+
+// rejectEscapingPaths 检查命令文本里的绝对路径和以 .. 开头的相对路径。
+// 只看字面量，挡不住 subst、环境变量展开等绕过。
+func rejectEscapingPaths(command string) string {
+	for _, tok := range shellTokens(command) {
+		tok = strings.Trim(tok, `"'`)
+		if !looksLikeCheckedPath(tok) {
+			continue
+		}
+		if _, err := guard(tok); err != nil {
+			return "拒绝执行：" + err.Error()
+		}
+	}
+	return ""
+}
+
+func looksLikeCheckedPath(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	if filepath.IsAbs(tok) {
+		return true
+	}
+	return tok == ".." || strings.HasPrefix(tok, "../") || strings.HasPrefix(tok, `..\`)
+}
+
+func shellTokens(command string) []string {
+	var out []string
+	var b strings.Builder
+	var quote rune
+	flush := func() {
+		if b.Len() > 0 {
+			out = append(out, b.String())
+			b.Reset()
+		}
+	}
+	for _, r := range command {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+				continue
+			}
+			b.WriteRune(r)
+		case r == '\'' || r == '"':
+			quote = r
+		case unicode.IsSpace(r):
+			flush()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return out
 }
 
 // truncate 按 rune 截断过长输出，并附带原长度提示。
