@@ -44,6 +44,8 @@ type Chat struct {
 	lastChars  int
 	lastReason string
 	lastShrunk bool
+	skillNote  string   // 已加载技能的 system 片段；空表示没有
+	skillTools []string // 技能工具白名单；nil 表示不限制（空切片表示一个都不给）
 
 	turnUsage    TokenUsage // 本轮（最近一次 StreamReply）
 	cumUsage     TokenUsage // 进程累计
@@ -68,6 +70,40 @@ func (c *Chat) Reconfigure(baseURL, apiKey, model string) {
 	c.apiKey = apiKey
 	c.client = openai.NewClientWithConfig(cfg)
 	c.model = model
+}
+
+// SetSkills 设置已加载技能：note 为附在请求最前的 system 片段（空表示没有），
+// allow 为工具白名单（nil 表示不限制；空切片表示一个工具都不给）。
+// 只影响发给模型的请求，不写入 history，也不进入会话落盘。
+func (c *Chat) SetSkills(note string, allow []string) {
+	c.skillNote = note
+	if allow == nil {
+		c.skillTools = nil
+		return
+	}
+	c.skillTools = append([]string{}, allow...)
+}
+
+// intersectTools 求白名单与只读集的交集；allow 为 nil（未加载技能）时返回只读集。
+// 返回值保持 allow 的顺序；可能是非 nil 空切片（表示一个工具都不给）。
+func intersectTools(allow, readonly []string) []string {
+	if allow == nil {
+		return readonly
+	}
+	if len(allow) == 0 || len(readonly) == 0 {
+		return []string{}
+	}
+	set := make(map[string]struct{}, len(readonly))
+	for _, n := range readonly {
+		set[n] = struct{}{}
+	}
+	out := make([]string, 0, len(allow))
+	for _, n := range allow {
+		if _, ok := set[n]; ok {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // pendingCall 流式聚拢中的单个 tool_call（按 Index 合并分片）。
@@ -128,22 +164,22 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 			return ErrInterrupted
 		}
 
-		// 按轮次选择全量或只读工具集
-		var openaiTools []openai.Tool
-		if shrinkAt > 0 && turn >= shrinkAt {
-			openaiTools = tools.ToOpenAIAllow(readonly)
+		// 按轮次选择工具集：技能白名单优先，收缩时与其取交集（没有白名单则只留只读）。
+		shrinking := shrinkAt > 0 && turn >= shrinkAt
+		allow := c.skillTools
+		if shrinking {
+			allow = intersectTools(allow, readonly)
 			if !shrunk {
 				shrunk = true
 				c.lastShrunk = true
-				onDelta(fmt.Sprintf("\n[工具集收缩：第 %d 轮起仅保留只读工具 %s]\n", turn+1, strings.Join(readonly, ", ")))
+				onDelta(fmt.Sprintf("\n[工具集收缩：第 %d 轮起仅保留只读工具 %s]\n", turn+1, strings.Join(allow, ", ")))
 			}
-		} else {
-			openaiTools = tools.ToOpenAI()
 		}
+		openaiTools := tools.ToOpenAIAllow(allow)
 
 		stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 			Model:         c.model,
-			Messages:      outboundMessages(c.history),
+			Messages:      c.outbound(c.history),
 			Tools:         openaiTools,
 			Stream:        true,
 			StreamOptions: streamOptions(),
@@ -325,7 +361,7 @@ func (c *Chat) streamFinalAnswer(ctx context.Context, snapshot []openai.ChatComp
 		return ErrInterrupted
 	}
 
-	msgs := outboundMessages(c.history, openai.ChatCompletionMessage{
+	msgs := c.outbound(c.history, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: wrapUpSystem,
 	})
@@ -490,6 +526,7 @@ func (c *Chat) Delegate(ctx context.Context, task string, onDelta func(string)) 
 	}
 	parent := cloneMessages(c.history)
 	child := New(c.baseURL, c.apiKey, c.model)
+	child.SetSkills(c.skillNote, c.skillTools)
 	child.SetHistory(parent)
 	delegateDepth.Add(1)
 	defer delegateDepth.Add(-1)

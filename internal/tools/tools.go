@@ -78,13 +78,14 @@ func ToOpenAI() []openai.Tool {
 	return ToOpenAIAllow(nil)
 }
 
-// ToOpenAIAllow 仅暴露 allow 中的工具；allow 为 nil/空时暴露全部。
-// chat 在工具轮次后期用 ReadonlyNames() 作为 allow，实现「只读收缩」。
+// ToOpenAIAllow 仅暴露 allow 中的工具；allow 为 nil 时暴露全部，非 nil 空切片表示一个都不暴露。
+// chat 在工具轮次后期用 ReadonlyNames() 作为 allow，实现「只读收缩」；
+// 加载技能后则用技能声明的工具白名单。
 func ToOpenAIAllow(allow []string) []openai.Tool {
 	mu.RLock()
 	defer mu.RUnlock()
 	var allowSet map[string]struct{}
-	if len(allow) > 0 {
+	if allow != nil {
 		allowSet = make(map[string]struct{}, len(allow))
 		for _, n := range allow {
 			allowSet[n] = struct{}{}

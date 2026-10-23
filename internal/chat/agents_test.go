@@ -31,7 +31,7 @@ func TestAgentsNoteTruncatesAndSkipsMissing(t *testing.T) {
 	if !strings.Contains(note.Content, "[AGENTS.md 已截断") {
 		t.Fatal("expected truncation note")
 	}
-	msgs := outboundMessages(nil)
+	msgs := (&Chat{}).outbound(nil)
 	if len(msgs) != 1 || msgs[0].Content == "" {
 		t.Fatalf("%+v", msgs)
 	}

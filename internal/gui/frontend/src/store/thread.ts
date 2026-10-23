@@ -57,15 +57,47 @@ export function fromTurns(turns: TurnPayload[]): Item[] {
   return endTurn(items);
 }
 
-/** 把 <think>…</think> 从正文中拆出；未闭合时视为仍在思考。 */
+/** 支持的思考标签对，与 TUI 的 think.go 保持一致。 */
+const THINK_TAGS = [
+  ["<think>", "</think>"],
+  ["<thinking>", "</thinking>"],
+  ["<reasoning>", "</reasoning>"],
+] as const;
+
+/** 把 <think>…</think> 等思考段从正文中拆出；未闭合时视为仍在思考。 */
 export function splitThink(text: string): { think: string; body: string; thinking: boolean } {
-  const open = text.indexOf("<think>");
-  if (open < 0) return { think: "", body: text, thinking: false };
-  const close = text.indexOf("</think>", open);
-  if (close < 0) return { think: text.slice(open + 7), body: text.slice(0, open), thinking: true };
-  return {
-    think: text.slice(open + 7, close).trim(),
-    body: (text.slice(0, open) + text.slice(close + 8)).trimStart(),
-    thinking: false,
-  };
+  let body = "";
+  const thinks: string[] = [];
+  let thinking = false;
+  let rest = text;
+
+  while (rest) {
+    let openAt = -1;
+    let openTag = "";
+    let closeTag = "";
+    for (const [open, close] of THINK_TAGS) {
+      const i = rest.indexOf(open);
+      if (i >= 0 && (openAt < 0 || i < openAt)) {
+        openAt = i;
+        openTag = open;
+        closeTag = close;
+      }
+    }
+    if (openAt < 0) {
+      body += rest;
+      break;
+    }
+    body += rest.slice(0, openAt);
+    rest = rest.slice(openAt + openTag.length);
+    const closeAt = rest.indexOf(closeTag);
+    if (closeAt < 0) {
+      thinks.push(rest);
+      thinking = true;
+      break;
+    }
+    thinks.push(rest.slice(0, closeAt));
+    rest = rest.slice(closeAt + closeTag.length);
+  }
+
+  return { think: thinks.join("\n\n").trim(), body: body.trimStart(), thinking };
 }

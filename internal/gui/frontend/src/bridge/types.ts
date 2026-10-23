@@ -27,6 +27,7 @@ export interface Status {
   messages: number;
   policy: string[];
   todos: TodoItem[];
+  skills: string[];
 }
 
 export interface TodoItem {

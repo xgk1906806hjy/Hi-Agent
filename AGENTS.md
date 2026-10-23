@@ -29,6 +29,7 @@
 | permission | `docs/permission/` | `internal/permission/` |
 | plan | `docs/plan/` | `internal/plan/` |
 | memory | `docs/memory/` | `internal/memory/` |
+| skills | `docs/skills/` | `internal/skills/` |
 | repl | `docs/repl/` | `cmd/hi-agent/` |
 
 新增模块时：在 `docs/<模块名>/` 下创建上述两个文件，代码放 `internal/<模块>/`（入口放 `cmd/hi-agent/`），并更新本表与 `docs/README.md`。

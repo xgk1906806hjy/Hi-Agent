@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import { splitThink } from "../store/thread";
 import { ToolGroup } from "./ToolGroup";
 import type { Item } from "../store/thread";
@@ -33,12 +34,11 @@ export function Message({ item }: { item: Item }) {
   return (
     <div className="max-w-[92%]">
       {think || thinking ? (
-        <details
-          className="mb-2 rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px] text-muted"
-          open={thinking}
-        >
-          <summary className="cursor-pointer select-none font-medium tracking-tight">
+        <details className="mb-2 rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px] text-muted">
+          <summary className="flex cursor-pointer select-none items-center gap-1.5 font-medium tracking-tight">
+            {thinking ? <Loader2 size={12} className="animate-spin text-accent" /> : null}
             {thinking ? "思考中…" : "思考过程"}
+            <span className="text-[11px] font-normal text-faint">（点击展开）</span>
           </summary>
           <pre className="mt-2 whitespace-pre-wrap font-sans leading-relaxed opacity-90">{think.trim()}</pre>
         </details>

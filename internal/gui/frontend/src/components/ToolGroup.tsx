@@ -2,7 +2,8 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 export function ToolGroup({ steps, running }: { steps: string[]; running: boolean }) {
-  const [open, setOpen] = useState(running);
+  // 默认折叠：运行中也只显示摘要与最后一行的预览，需要时手动展开。
+  const [open, setOpen] = useState(false);
   const summary = running ? `过程中 · ${steps.length}` : `过程 · ${steps.length}`;
 
   return (
@@ -10,6 +11,7 @@ export function ToolGroup({ steps, running }: { steps: string[]; running: boolea
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-muted hover:text-ink"
       >
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

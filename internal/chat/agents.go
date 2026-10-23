@@ -27,11 +27,18 @@ func agentsNote() (openai.ChatCompletionMessage, bool) {
 	}, true
 }
 
-// outboundMessages 在 history 前附上 AGENTS.md（若有），再接上只存在于本次请求的尾部消息。
-func outboundMessages(history []openai.ChatCompletionMessage, tail ...openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
-	out := make([]openai.ChatCompletionMessage, 0, len(history)+len(tail)+1)
+// outbound 在 history 前附上 AGENTS.md（若有）与已加载技能（若有），再接上只存在于本次请求的尾部消息。
+func (c *Chat) outbound(history []openai.ChatCompletionMessage, tail ...openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+	extra := 2
+	out := make([]openai.ChatCompletionMessage, 0, len(history)+len(tail)+extra)
 	if note, ok := agentsNote(); ok {
 		out = append(out, note)
+	}
+	if c != nil && c.skillNote != "" {
+		out = append(out, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: c.skillNote,
+		})
 	}
 	out = append(out, history...)
 	out = append(out, tail...)

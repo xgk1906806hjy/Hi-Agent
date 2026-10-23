@@ -24,6 +24,7 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/skills"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/ui"
@@ -45,6 +46,10 @@ type app struct {
 	userPolicyAt     time.Time
 	userPolicyExists bool
 	policyErr        string
+
+	skillMu      sync.RWMutex
+	skillList    []skills.Skill
+	activeSkills map[string]bool // key 为小写技能名；仅在当前进程内有效
 
 	busy     atomic.Bool
 	exitOnce sync.Once
@@ -109,10 +114,12 @@ func main() {
 	a := &app{
 		chat: c, mgr: session.NewManager(c, data), workDir: cfg.WorkDir,
 		provider: cfg.Provider, baseURL: cfg.BaseURL, apiKey: cfg.APIKey,
+		activeSkills: map[string]bool{},
 	}
 
 	in := bufio.NewReader(os.Stdin)
 	a.ui = a.newUI(in)
+	a.reloadSkills()
 	c.SetUsageHook(a.ui.Refresh)
 	tools.SetConfirm(a.ui.Confirm)
 	tools.SetDelegator(func(ctx context.Context, task string) (string, error) {
@@ -304,6 +311,7 @@ func (a *app) switchProject(path string) bool {
 	if err := workspace.Remember(abs); err != nil {
 		a.ui.Error("记录项目失败：" + err.Error())
 	}
+	a.reloadSkills()
 	if err := plan.Activate(abs, a.mgr.Current()); err != nil {
 		a.ui.Error("任务清单：" + err.Error())
 	}
@@ -402,6 +410,7 @@ func (a *app) statusSnapshot() ui.Status {
 		Messages:       p.Messages,
 		Policy:         policyLines,
 		Todos:          uiTodos,
+		Skills:         a.activeSkillNames(),
 	}
 }
 
@@ -458,6 +467,161 @@ func clipRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// —— Day 11 技能：扫描 skills/、按 /use 加载 ——
+
+// reloadSkills 重新扫描 skills/，丢掉已不存在的已加载技能，并把结果应用到 chat。
+// 技能状态只在进程内有效；切换项目后按新目录重新扫描。
+func (a *app) reloadSkills() {
+	list, err := skills.Scan()
+	if err != nil {
+		a.ui.Error("加载技能失败：" + err.Error())
+		return
+	}
+	a.skillMu.Lock()
+	a.skillList = list
+	for name := range a.activeSkills {
+		if _, ok := skills.Find(list, name); !ok {
+			delete(a.activeSkills, name)
+		}
+	}
+	active := a.activeSkillsLocked()
+	a.skillMu.Unlock()
+	a.applySkillContext(active)
+}
+
+// activeSkillsLocked 返回已加载技能（保持扫描顺序）；调用方需持有 skillMu。
+func (a *app) activeSkillsLocked() []skills.Skill {
+	out := make([]skills.Skill, 0, len(a.activeSkills))
+	for _, s := range a.skillList {
+		if a.activeSkills[strings.ToLower(s.Name)] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (a *app) activeSkillList() []skills.Skill {
+	a.skillMu.RLock()
+	defer a.skillMu.RUnlock()
+	return a.activeSkillsLocked()
+}
+
+// activeSkillNames 供 /status 与桌面侧栏展示。
+func (a *app) activeSkillNames() []string {
+	return skills.Names(a.activeSkillList())
+}
+
+// applySkillContext 把已加载技能转成 chat 的 system 片段与工具白名单。
+func (a *app) applySkillContext(active []skills.Skill) {
+	a.chat.SetSkills(skills.Note(active), skills.Tools(active))
+}
+
+// setSkillActive 切换单个技能的加载状态并立即生效。
+func (a *app) setSkillActive(name string, on bool) {
+	key := strings.ToLower(name)
+	a.skillMu.Lock()
+	if on {
+		a.activeSkills[key] = true
+	} else {
+		delete(a.activeSkills, key)
+	}
+	active := a.activeSkillsLocked()
+	a.skillMu.Unlock()
+	a.applySkillContext(active)
+}
+
+func (a *app) findSkill(name string) (skills.Skill, bool) {
+	a.skillMu.RLock()
+	defer a.skillMu.RUnlock()
+	return skills.Find(a.skillList, name)
+}
+
+// showSkills 重新扫描并列出所有技能（* 表示已加载）。
+func (a *app) showSkills() {
+	a.reloadSkills()
+	a.printSkills()
+}
+
+func (a *app) printSkills() {
+	a.skillMu.RLock()
+	list := append([]skills.Skill(nil), a.skillList...)
+	active := make(map[string]bool, len(a.activeSkills))
+	for k, v := range a.activeSkills {
+		active[k] = v
+	}
+	a.skillMu.RUnlock()
+
+	if len(list) == 0 {
+		a.ui.Info("未找到技能。在 skills/<名称>/SKILL.md 写 frontmatter（name / description / tools）与正文，再用 /use <名称> 加载。")
+		return
+	}
+	var b strings.Builder
+	b.WriteString("技能（* 已加载）：\n")
+	for _, s := range list {
+		mark := "  "
+		if active[strings.ToLower(s.Name)] {
+			mark = "* "
+		}
+		b.WriteString(mark + s.Name)
+		if s.Description != "" {
+			b.WriteString(" — " + s.Description)
+		}
+		if len(s.Tools) > 0 {
+			b.WriteString("（工具：" + strings.Join(s.Tools, ", ") + "）")
+		}
+		b.WriteString("\n")
+	}
+	a.ui.Info(strings.TrimRight(b.String(), "\n"))
+}
+
+// cmdSkillUse 处理 /use；无参数时等价于 /skills。
+func (a *app) cmdSkillUse(args []string) {
+	a.reloadSkills()
+	if len(args) == 0 {
+		a.printSkills()
+		return
+	}
+	name := args[0]
+	s, ok := a.findSkill(name)
+	if !ok {
+		a.ui.Error("未找到技能：" + name + "（用 /skills 查看）")
+		return
+	}
+	a.setSkillActive(s.Name, true)
+	if len(s.Tools) > 0 {
+		a.ui.Info(fmt.Sprintf("已加载技能：%s（工具白名单：%s）", s.Name, strings.Join(s.Tools, ", ")))
+	} else {
+		a.ui.Info("已加载技能：" + s.Name + "（不限制工具）")
+	}
+}
+
+// cmdSkillUnuse 处理 /unuse；无参数时卸载全部。
+func (a *app) cmdSkillUnuse(args []string) {
+	if len(args) == 0 {
+		a.skillMu.Lock()
+		n := len(a.activeSkills)
+		a.activeSkills = map[string]bool{}
+		a.skillMu.Unlock()
+		a.applySkillContext(nil)
+		a.ui.Info(fmt.Sprintf("已卸载全部技能（%d 个）", n))
+		return
+	}
+	name := args[0]
+	if _, ok := a.findSkill(name); !ok {
+		a.ui.Error("未找到技能：" + name + "（用 /skills 查看）")
+		return
+	}
+	a.skillMu.RLock()
+	active := a.activeSkills[strings.ToLower(name)]
+	a.skillMu.RUnlock()
+	if !active {
+		a.ui.Notice("技能未加载：" + name)
+		return
+	}
+	a.setSkillActive(name, false)
+	a.ui.Info("已卸载技能：" + name)
+}
+
 func slashCommands() []ui.SlashCmd {
 	return []ui.SlashCmd{
 		{Name: "/model", Desc: "配置供应商与模型"},
@@ -465,6 +629,9 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/pwd", Desc: "显示工作目录"},
 		{Name: "/status", Desc: "状态与 tokens"},
 		{Name: "/project", Desc: "切换项目目录"},
+		{Name: "/skills", Desc: "列出技能"},
+		{Name: "/use", Desc: "加载技能"},
+		{Name: "/unuse", Desc: "卸载技能"},
 		{Name: "/sessions", Desc: "列出会话"},
 		{Name: "/new", Desc: "新建会话"},
 		{Name: "/open", Desc: "打开会话"},
@@ -581,10 +748,20 @@ func (a *app) handleCommand(line string) bool {
 	case "/pwd":
 		a.ui.Info("工作目录：" + a.workDir + "\n（ls/read/write/run_shell 均相对此目录；会话：" + session.Path() + "）")
 	case "/status":
+		loaded := "无"
+		if names := a.activeSkillNames(); len(names) > 0 {
+			loaded = strings.Join(names, ", ")
+		}
 		a.ui.Info(fmt.Sprintf(
-			"工作目录：%s\n供应商：%s · 模型：%s\n接口：%s\n当前会话：%s\n%s",
-			a.workDir, a.provider, c.Model(), a.baseURL, mgr.Current(), c.Status(),
+			"工作目录：%s\n供应商：%s · 模型：%s\n接口：%s\n当前会话：%s\n已加载技能：%s\n%s",
+			a.workDir, a.provider, c.Model(), a.baseURL, mgr.Current(), loaded, c.Status(),
 		))
+	case "/skills":
+		a.showSkills()
+	case "/use":
+		a.cmdSkillUse(args)
+	case "/unuse":
+		a.cmdSkillUnuse(args)
 	case "/reset":
 		c.Reset()
 		mgr.SyncFromChat()
@@ -757,6 +934,9 @@ func helpText() string {
   /pwd               显示当前工作目录（工具读写基准）
   /status            显示工作目录、会话、tokens 与护栏状态
   /project <目录>    切换项目（保存当前会话后以该目录为工作区）
+  /skills            列出 skills/<名称>/SKILL.md 中的技能（* 为已加载）
+  /use <名称>        加载技能：追加 system 片段，并按声明的 tools 限定工具
+  /unuse [名称]      卸载技能（省略名称则全部卸载）
   /sessions          列出全部会话（* 为当前）
   /new [id]          新建空会话并切换（可省略 id，自动 8 位）
   /open <id> [目录]  切换到已有会话（带目录时先切项目再打开）

@@ -58,6 +58,7 @@ type StatusPayload struct {
 	Messages       int           `json:"messages"`
 	Policy         []string      `json:"policy"`
 	Todos          []TodoPayload `json:"todos"`
+	Skills         []string      `json:"skills"`
 }
 
 // TodoPayload 镜像 ui.Todo。
@@ -132,8 +133,15 @@ func toStatus(s ui.Status) StatusPayload {
 		Model: s.Model, Provider: s.Provider, Session: s.Session, WorkDir: s.WorkDir, Busy: s.Busy,
 		CtxTokens: s.CtxTokens, CtxEstimated: s.CtxEstimated, CtxWindow: s.CtxWindow,
 		TurnPrompt: s.TurnPrompt, TurnCompletion: s.TurnCompletion, Messages: s.Messages,
-		Policy: s.Policy, Todos: toTodos(s.Todos),
+		Policy: s.Policy, Todos: toTodos(s.Todos), Skills: toStrings(s.Skills),
 	}
+}
+
+func toStrings(in []string) []string {
+	if len(in) == 0 {
+		return []string{}
+	}
+	return in
 }
 
 func toTodos(in []ui.Todo) []TodoPayload {

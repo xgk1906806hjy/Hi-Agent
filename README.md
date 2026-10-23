@@ -182,6 +182,9 @@ hi-agent
 | `/pwd` | 显示工作目录与会话文件路径 |
 | `/status` | 工作目录、会话、tokens、护栏状态 |
 | `/project <目录>` | 切换工作目录并加载该项目会话 |
+| `/skills` | 列出 `skills/` 下的技能（`*` 为已加载） |
+| `/use <名称>` | 加载技能：追加 system 片段并按 `tools` 限定工具 |
+| `/unuse [名称]` | 卸载技能（省略名称则全部卸载） |
 | `/sessions` | 列出本项目全部会话（`*` 为当前） |
 | `/new [id]` | 新建空会话并切换 |
 | `/open <id> [目录]` | 切换会话；带目录时先切项目 |
@@ -211,23 +214,25 @@ hi-agent
 | 项目注册表 | `~/.hi-agent/projects.json`（GUI） |
 | 项目可选配置 | `{项目}/.env` 或上级目录 `.env` |
 | 项目指令 | 工作区根 `AGENTS.md`（每轮注入，不进会话 history） |
+| 技能 | `{cwd}/skills/<名称>/SKILL.md`（按需 `/use` 加载，不落盘） |
 
 `.geekagent/` 与 `.env` 已在 `.gitignore` 中，勿把密钥提交进仓库。
 
 ---
 
-## 当前能力（Day 1–10）
+## 当前能力（Day 1–11）
 
 - 流式多轮对话（OpenAI 兼容接口）与工具循环护栏
 - 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`
 - 权限（allow/ask/deny）、路径越界、输出脱敏；多步 `/undo`；工作区路径约束（非 OS 沙箱）
 - 任务清单按会话落盘；子任务委派（复制主 history、可用工具、仅一层）
 - 项目指令 `AGENTS.md` + 长期记忆（跨会话子串搜索）
+- 技能：`skills/*/SKILL.md` + `/use` `/unuse` `/skills`，system 片段与工具白名单
 - 多会话持久化、轻量 TUI + token 面板
-- 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理
+- 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理、技能卡片
 - 全局 CLI + `setup-env` 一键环境配置
 
-**下一步：Day 11**（Skills）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
+**下一步：Day 12**（search + fetch）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
 
 ## 工程结构
 
@@ -241,6 +246,7 @@ internal/session/   # 多会话与落盘（项目 .geekagent/）
 internal/permission/# 权限、SafePath、脱敏
 internal/plan/      # 任务清单（todos.json）
 internal/memory/    # 长期记忆（memory.json）
+internal/skills/    # 技能扫描（skills/*/SKILL.md）
 internal/tui/       # 轻量全屏界面与面板
 internal/ui/        # UI 抽象工厂（plain / tui / gui）
 internal/gui/       # Wails 桌面对话壳（desktop 标签 + React 前端）
