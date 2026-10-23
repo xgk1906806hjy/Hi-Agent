@@ -23,12 +23,12 @@ func RegistryPath() string {
 	return filepath.Join(home, ".hi-agent", "projects.json")
 }
 
-// Load 读取已登记项目（最近使用在前）；文件缺失或损坏时返回空列表。
+// Load 读取已登记项目（新登记的在最前）；文件缺失或损坏时返回空列表。
 func Load() []string {
 	return loadFrom(RegistryPath())
 }
 
-// Remember 把目录登记到列表最前面（已存在则前移）。
+// Remember 登记目录：未登记时插到最前；已登记则保持原位置，点开项目不会置顶。
 func Remember(dir string) error {
 	return rememberIn(RegistryPath(), dir)
 }
@@ -58,13 +58,13 @@ func rememberIn(path, dir string) error {
 	if dir == "" {
 		return nil
 	}
-	next := []string{dir}
-	for _, p := range loadFrom(path) {
-		if !SamePath(p, dir) {
-			next = append(next, p)
+	next := loadFrom(path)
+	for _, p := range next {
+		if SamePath(p, dir) {
+			return nil
 		}
 	}
-	return saveTo(path, next)
+	return saveTo(path, append([]string{dir}, next...))
 }
 
 func removeIn(path, dir string) error {

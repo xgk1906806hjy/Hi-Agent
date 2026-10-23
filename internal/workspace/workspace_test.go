@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestRememberMovesToFrontAndDedupes(t *testing.T) {
+func TestRememberAddsNewFirstAndKeepsOrder(t *testing.T) {
 	reg := filepath.Join(t.TempDir(), "projects.json")
 	a, b := filepath.Join("E:", "a"), filepath.Join("E:", "b")
 	if err := rememberIn(reg, a); err != nil {
@@ -15,11 +15,12 @@ func TestRememberMovesToFrontAndDedupes(t *testing.T) {
 	if err := rememberIn(reg, b); err != nil {
 		t.Fatal(err)
 	}
+	// 已登记：忽略大小写去重，且不改变原位置（点开不置顶）。
 	if err := rememberIn(reg, filepath.Join("E:", "A")); err != nil {
 		t.Fatal(err)
 	}
 	got := loadFrom(reg)
-	if len(got) != 2 || !SamePath(got[0], a) || !SamePath(got[1], b) {
+	if len(got) != 2 || !SamePath(got[0], b) || !SamePath(got[1], a) {
 		t.Fatalf("got %v", got)
 	}
 	if err := removeIn(reg, b); err != nil {
