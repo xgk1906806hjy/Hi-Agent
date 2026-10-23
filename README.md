@@ -116,7 +116,7 @@ hi-agent
 |----|------|------|
 | `tui`（默认） | 终端全屏 | 左侧对话、右侧用量面板 |
 | `plain` | 纯文本终端 | 兼容旧变量 `GEEKAGENT_TUI=0` |
-| `gui` | 桌面窗口（Wails + React） | 须用 `scripts/build-gui` 打出的桌面版二进制；左侧项目/会话、Markdown 对话流 |
+| `gui` | 桌面窗口（Wails + React） | 须用 `scripts/build-gui` 打出的桌面版二进制；精密纸面 + 标题栏、项目/会话侧栏、Markdown 对话流 |
 
 终端版二进制不含桌面界面：对它设 `GEEKAGENT_UI=gui` 会提示用 build-gui 构建。桌面版 exe 已通过 ldflags 默认进入 GUI。
 
@@ -181,13 +181,18 @@ hi-agent
 | `/help` | 帮助 |
 | `/pwd` | 显示工作目录与会话文件路径 |
 | `/status` | 工作目录、会话、tokens、护栏状态 |
+| `/project <目录>` | 切换工作目录并加载该项目会话 |
 | `/sessions` | 列出本项目全部会话（`*` 为当前） |
 | `/new [id]` | 新建空会话并切换 |
-| `/open <id>` | 切换到已有会话 |
+| `/open <id> [目录]` | 切换会话；带目录时先切项目 |
+| `/rename` / `/delete` | 重命名 / 删除会话 |
 | `/save` | 立刻写入 `.geekagent/sessions.json` |
 | `/load` | 从磁盘重载（丢弃未保存改动） |
 | `/compact` | 压缩旧对话摘要 |
 | `/reset` | 清空当前会话记忆 |
+| `/memory` | 列出项目长期记忆 |
+| `/undo` | 撤销最近一次 write/patch（最多 20 步） |
+| `/permissions` | 显示项目与用户权限规则 |
 | `/exit` | 保存并退出 |
 
 ---
@@ -196,27 +201,33 @@ hi-agent
 
 | 内容 | 位置 |
 |------|------|
-| 读/写/改文件、跑 shell | **启动时的当前工作目录（cwd）** |
+| 读/写/改文件、跑 shell | **启动时的当前工作目录（cwd）**（路径约束在工作区内） |
 | 多会话 JSON | `{cwd}/.geekagent/sessions.json` |
+| 任务清单 | `{cwd}/.geekagent/todos.json`（按会话） |
+| 长期记忆 | `{cwd}/.geekagent/memory.json` |
+| 权限规则 | `{cwd}/.geekagent/GeekAgent.json`；用户级 `~/.hi-agent/GeekAgent.json` |
+| 撤销栈 | `{cwd}/.geekagent/undo.json` |
 | 全局 API 配置 | `~/.hi-agent/.env` |
+| 项目注册表 | `~/.hi-agent/projects.json`（GUI） |
 | 项目可选配置 | `{项目}/.env` 或上级目录 `.env` |
+| 项目指令 | 工作区根 `AGENTS.md`（每轮注入，不进会话 history） |
 
 `.geekagent/` 与 `.env` 已在 `.gitignore` 中，勿把密钥提交进仓库。
 
 ---
 
-## 当前能力（Day1–7）
+## 当前能力（Day 1–10）
 
-- 流式多轮对话（OpenAI 兼容接口）
-- 工具调用循环：`get_current_time`、`run_shell`、`ls`、`glob`、`read`、`write`、`patch`
-- 危险操作确认（shell / 写文件展示 diff）
-- 历史自动压缩与 `/compact`
-- 工具循环护栏：轮次上限、重复熔断、回复预算、后期只读工具集、强制收尾
-- 多会话持久化：`.geekagent/sessions.json`
-- 轻量 TUI + token 用量面板
-- 桌面 GUI（Wails + React）：`scripts/build-gui` 打包；双击 `dist/Hi-agent.exe`
-- 全局 CLI：任意 cwd 启动，分层加载 `.env`
-- 一键环境配置：`setup-env` / `scripts/setup-env.*`
+- 流式多轮对话（OpenAI 兼容接口）与工具循环护栏
+- 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`
+- 权限（allow/ask/deny）、路径越界、输出脱敏；多步 `/undo`；工作区路径约束（非 OS 沙箱）
+- 任务清单按会话落盘；子任务委派（复制主 history、可用工具、仅一层）
+- 项目指令 `AGENTS.md` + 长期记忆（跨会话子串搜索）
+- 多会话持久化、轻量 TUI + token 面板
+- 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理
+- 全局 CLI + `setup-env` 一键环境配置
+
+**下一步：Day 11**（Skills）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
 
 ## 工程结构
 
@@ -224,9 +235,12 @@ hi-agent
 cmd/hi-agent/       # 入口（REPL）
 internal/config/    # 环境配置（全局 + 项目 .env）
 internal/color/     # 终端着色
-internal/chat/      # 对话、流式、工具循环、压缩、用量
+internal/chat/      # 对话、流式、工具循环、压缩、用量、AGENTS、委派
 internal/tools/     # 工具注册与执行（相对 cwd）
 internal/session/   # 多会话与落盘（项目 .geekagent/）
+internal/permission/# 权限、SafePath、脱敏
+internal/plan/      # 任务清单（todos.json）
+internal/memory/    # 长期记忆（memory.json）
 internal/tui/       # 轻量全屏界面与面板
 internal/ui/        # UI 抽象工厂（plain / tui / gui）
 internal/gui/       # Wails 桌面对话壳（desktop 标签 + React 前端）
@@ -236,7 +250,6 @@ docs/               # 模块功能逻辑 + 改动记录
 doc/                # 按 Day 的开发方案（里程碑）
 openspec/           # 规格驱动变更
 ```
-
 ## 文档
 
 | 路径 | 说明 |

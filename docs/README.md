@@ -22,7 +22,7 @@ Day 只表示开发里程碑，见 `doc/开发方案-按Day.md`。代码统一�
 | [session](./session/) | 多会话内存与落盘 | `internal/session/` | Map、JSON、与 Chat 同步、退出改名 |
 | [tui](./tui/) | 轻量全屏界面与面板 | `internal/tui/` | 左右分栏、用量面板、终端恢复 |
 | [ui](./ui/) | UI 抽象与工厂（可插拔） | `internal/ui/` | `UI` 接口、Register/Create、Kind |
-| [gui](./gui/) | Wails 桌面对话壳 | `internal/gui/` | 协议、Adapter、React 前端（desktop 标签） |
+| [gui](./gui/) | Wails 桌面对话壳 | `internal/gui/` | 精密纸面、无边框标题栏、协议 / Adapter / React（desktop） |
 | [workspace](./workspace/) | 项目注册表与会话列表 | `internal/workspace/` | `projects.json`、`ListSessions` |
 | [permission](./permission/) | 工具权限、路径越界、脱敏（Day 8） | `internal/permission/` | `GeekAgent.json` 规则、`SafePath`、`Redact` |
 | [plan](./plan/) | 任务清单（Day 9） | `internal/plan/` | 按会话写入 `todos.json`，同时最多一项 in_progress |

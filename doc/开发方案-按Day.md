@@ -101,22 +101,22 @@ Hi-agent/
 ### Day 8 — 权限与回滚
 
 - **交付**：`permissions.ts`（allow/ask/deny + safePath + redact）；`undo.ts`
-- **配置**：`.geekagent/GeekAgent.json`
+- **配置**：`.geekagent/GeekAgent.json`（项目级）+ `~/.hi-agent/GeekAgent.json`（用户级，项目优先）
 - **验收**：deny 拒绝；越界失败；密钥脱敏；`/undo` 恢复最近写入
-- **不做**：shell 目录隔离、多步 undo
+- **Go 已补齐（原方案「不做」）**：工作区路径约束（shell/glob，非 OS 沙箱）；`undo.json` 最多 20 步栈
 
 ### Day 9 — 任务规划与子 Agent
 
-- **交付**：`todo_write`（右栏进度）；`delegate_task`（干净上下文、无工具）
+- **交付**：`todo_write`（右栏/侧栏进度，按会话 `todos.json`）；`delegate_task`
 - **验收**：多步任务有 TODO；委派不污染主 history
 - **约束**：同时最多一项 `in_progress`
+- **Go 落地**：子任务复制主 history、可用工具、仅一层（原方案「干净上下文、无工具」已演进）
 
 ### Day 10 — 项目指令 + 长期记忆
 
 - **交付**：`AGENTS.md` 入每轮 system；`memory_write` / `memory_search` → `memory.json`
 - **验收**：新会话仍遵守规则；跨会话可搜偏好；`/memory`
 - **不做**：embedding、记忆编辑删除
-
 ### Day 11 — Skills
 
 - **交付**：`skills/*/SKILL.md` + 可选 `tools.ts`；`/use` `/unuse` `/skills`
@@ -173,13 +173,13 @@ Hi-agent/
 
 **已完成：Day 1–10**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚、任务清单与子任务委派、项目指令与长期记忆）。  
 工具循环护栏（轮次 / 重复熔断 / 预算 / 收缩）已作为横切能力落地。  
-另：Wails 桌面 GUI（项目 > 会话侧栏、会话标题/时间、跨项目重命名/删除、斜杠补全、跟随系统/浅色/深色）与 `workspace` 项目注册表已落地。
+另：Wails 桌面 GUI（精密纸面、无边框标题栏 + Orbit 图标、主题三态、项目 > 会话侧栏、跨项目重命名/删除、斜杠补全）与 `workspace` 项目注册表已落地。
 
 Day 8 的 Go 落地方式（对照原 TS 方案）：
 
 | 原方案 | Go 实现 |
 |--------|---------|
-| `permissions.ts` | `internal/permission`：`Load`（`.geekagent/GeekAgent.json`）、`Decide`、`SafePath`、`Redact` |
+| `permissions.ts` | `internal/permission`：`Load`（项目 + 用户 `GeekAgent.json` 合并）、`Decide`、`SafePath`、`Redact` |
 | 接入工具 | `tools.SetPolicy` / `SetPathGuard` / `SetRedactor` 钩子（tools 不依赖 permission，由 REPL 注入） |
 | `undo.ts` | `tools.UndoLast` + `.geekagent/undo.json`（最多 20 条；不撤销 shell） |
 | 命令 | `/undo`、`/permissions` |
@@ -192,8 +192,8 @@ Day 8 的 Go 落地方式（对照原 TS 方案）：
 
 | Day | 新模块 / 文件 | 工具 | 命令 | 界面 |
 |-----|---------------|------|------|------|
-| 9（已完成） | `internal/plan`（内存清单，同时最多一项 in_progress）；`chat.Delegate` 独立 history、无工具 | `todo_write`、`delegate_task`（默认 allow） | — | TUI 右栏、GUI 侧栏 |
-| 10 | 每轮把 `AGENTS.md` 拼进 system；`internal/memory` → `.geekagent/memory.json` | `memory_write`、`memory_search` | `/memory` | — |
+| 9（已完成） | `internal/plan`（`todos.json` 按会话）；`chat.Delegate` 复制主 history、可用工具、仅一层 | `todo_write`、`delegate_task`（默认 allow） | — | TUI 右栏、GUI 侧栏 |
+| 10（已完成） | 每轮把 `AGENTS.md` 拼进请求 messages；`internal/memory` → `.geekagent/memory.json` | `memory_write`、`memory_search` | `/memory` | — |
 | 11 | `internal/skills` 扫描 `skills/*/SKILL.md`，动态增减 system 片段与工具白名单 | 按 skill 声明 | `/use` `/unuse` `/skills` | GUI 显示已加载 skill |
 | 12 | `search`（路径:行号，纯 Go）、`fetch`（去 HTML 标签） | `search`、`fetch`（默认 ask） | — | — |
 | 13 | memory 切块 + BM25，每轮提问前自动取 Top5 进 system | — | — | — |
