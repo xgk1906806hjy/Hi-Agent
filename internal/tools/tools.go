@@ -58,6 +58,7 @@ var readonlyToolNames = map[string]struct{}{
 	"ls":               {},
 	"glob":             {},
 	"read":             {},
+	"search":           {},
 }
 
 // ReadonlyNames 返回「已注册 ∩ 只读集合」的工具名（顺序随 registry）。
@@ -164,7 +165,7 @@ func execRaw(ctx context.Context, name, argsJSON string) string {
 	return result
 }
 
-// init 按固定顺序注册内置工具：时间 → shell → 文件族。
+// init 按固定顺序注册内置工具：时间 → shell → 文件族 → 计划/委派/记忆 → 检索。
 func init() {
 	registerTime()
 	registerShell()
@@ -172,4 +173,6 @@ func init() {
 	registerPlan()
 	registerDelegate()
 	registerMemory()
+	registerSearch()
+	registerFetch()
 }

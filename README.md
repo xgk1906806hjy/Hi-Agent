@@ -154,7 +154,7 @@ hi-agent
 ### 4. 使用中
 
 1. 用自然语言提需求（TUI/plain 在 `You ›` 后输入；GUI 在窗口底部输入框输入，点「发送」）。
-2. 工具相对当前目录：`ls` / `glob` / `read` / `write` / `patch` / `run_shell`（写文件与 shell 需确认）。
+2. 工具以当前目录为工作区：`ls` / `glob` / `read` / `search` / `write` / `patch` / `run_shell`，以及抓取网页的 `fetch`（写文件、shell 与 fetch 需确认；search 免确认）。
 3. 斜杠命令见下表；输入 `/` 可展开命令菜单。
 
 各界面的操作差异：
@@ -220,10 +220,11 @@ hi-agent
 
 ---
 
-## 当前能力（Day 1–11）
+## 当前能力（Day 1–12）
 
 - 流式多轮对话（OpenAI 兼容接口）与工具循环护栏
-- 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`
+- 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`、`search` / `fetch`
+- 仓库内容搜索（`路径:行号`，字面/正则，纯 Go）与网页抓取转纯文本（默认先确认）
 - 权限（allow/ask/deny）、路径越界、输出脱敏；多步 `/undo`；工作区路径约束（非 OS 沙箱）
 - 任务清单按会话落盘；子任务委派（复制主 history、可用工具、仅一层）
 - 项目指令 `AGENTS.md` + 长期记忆（跨会话子串搜索）
@@ -232,7 +233,7 @@ hi-agent
 - 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理、技能卡片
 - 全局 CLI + `setup-env` 一键环境配置
 
-**下一步：Day 12**（search + fetch）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
+**下一步：Day 13**（主动记忆：切块 + BM25，每轮自动 Top5 进 system）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
 
 ## 工程结构
 

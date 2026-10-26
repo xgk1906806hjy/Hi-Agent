@@ -18,7 +18,7 @@ Day 只表示开发里程碑，见 `doc/开发方案-按Day.md`。代码统一�
 | [config](./config/) | 模型与环境配置 | `internal/config/` | `.env` 优先级、`Load` 退出路径 |
 | [color](./color/) | 终端着色与输出 | `internal/color/` | TTY 检测、四色约定 |
 | [chat](./chat/) | 对话历史、流式与工具循环 | `internal/chat/` | StreamReply / 压缩 / 护栏 / 用量 |
-| [tools](./tools/) | 工具注册与执行 | `internal/tools/` | 注册表、确认、各工具与 diff 落盘 |
+| [tools](./tools/) | 工具注册与执行 | `internal/tools/` | 注册表、确认、各工具与 diff 落盘、search/fetch |
 | [session](./session/) | 多会话内存与落盘 | `internal/session/` | Map、JSON、与 Chat 同步、退出改名 |
 | [tui](./tui/) | 轻量全屏界面与面板 | `internal/tui/` | 左右分栏、用量面板、终端恢复 |
 | [ui](./ui/) | UI 抽象与工厂（可插拔） | `internal/ui/` | `UI` 接口、Register/Create、Kind |

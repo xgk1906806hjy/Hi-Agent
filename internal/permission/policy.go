@@ -83,10 +83,10 @@ func UserConfigPath() string {
 	return filepath.Join(home, ".hi-agent", "GeekAgent.json")
 }
 
-// 内置默认：只读工具 allow，会改动环境的工具 ask，其余（含未知工具）deny。
+// 内置默认：只读工具 allow，会改动环境/联网的工具 ask，其余（含未知工具）deny。
 var (
-	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "todo_write", "delegate_task", "memory_write", "memory_search"}
-	defaultAsk   = []string{"run_shell", "write", "patch"}
+	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "search", "todo_write", "delegate_task", "memory_write", "memory_search"}
+	defaultAsk   = []string{"run_shell", "write", "patch", "fetch"}
 )
 
 // Default 只含内置默认的策略。
@@ -186,19 +186,22 @@ func defaultDecision(tool string) Decision {
 	return Deny
 }
 
-// Subject 取规则匹配用的参数：run_shell 取 command，glob 取 pattern，文件类取 path。
+// Subject 取规则匹配用的参数：run_shell 取 command，glob/search 取 pattern，fetch 取 url，文件类取 path。
 func Subject(tool, argsJSON string) string {
 	var args struct {
 		Command string `json:"command"`
 		Path    string `json:"path"`
 		Pattern string `json:"pattern"`
+		URL     string `json:"url"`
 	}
 	_ = json.Unmarshal([]byte(argsJSON), &args)
 	switch tool {
 	case "run_shell":
 		return strings.TrimSpace(args.Command)
-	case "glob":
+	case "glob", "search":
 		return filepath.ToSlash(strings.TrimSpace(args.Pattern))
+	case "fetch":
+		return strings.TrimSpace(args.URL)
 	default:
 		return filepath.ToSlash(strings.TrimSpace(args.Path))
 	}
