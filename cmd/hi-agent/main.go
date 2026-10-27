@@ -1,5 +1,5 @@
 // hi-agent 进程入口与 REPL：加载配置/会话，经 ui 工厂创建界面，驱动 chat.StreamReply。
-// UI 可插拔（plain / tui / gui；web 预留）；退出时保存会话并 Close UI。
+// UI 可插拔（plain / tui / gui / web）；退出时保存会话并 Close UI。
 package main
 
 import (
@@ -24,13 +24,16 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/memory"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/plugins"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/rag"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/skills"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tui"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/ui"
+	_ "github.com/xgk1906806hjy/Hi-Agent/internal/webui"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/workspace"
+	_ "github.com/xgk1906806hjy/Hi-Agent/plugins/all"
 )
 
 // app 持有对话、会话管理与当前 UI，以及空闲中断与退出一次化状态。
@@ -43,6 +46,7 @@ type app struct {
 	baseURL          string
 	apiKey           string
 	mcpMgr           *mcp.Manager
+	pluginMgr        *plugins.Manager
 	policy           *permission.Policy
 	policyAt         time.Time
 	policyExists     bool
@@ -89,14 +93,14 @@ func main() {
 	applyLaunchDefaults()
 
 	// —— 启动：配置、会话、UI、用量钩子、空闲中断 ——
-	// GUI 可能无控制台：配置缺失时不退出，进窗口后提示 /model。
+	// GUI / Web 可能无控制台：配置缺失时不退出，进界面后提示 /model。
 	var cfg config.Config
 	cfgErr := ""
-	if ui.ResolveKind() == ui.KindGUI {
+	if kind := ui.ResolveKind(); kind == ui.KindGUI || kind == ui.KindWeb {
 		var err error
 		cfg, err = config.LoadE()
 		if err != nil {
-			cfgErr = "模型未配置：" + err.Error() + "\n请点底部 /model →「切换供应商 / 中转站」填写，并选择写入全局配置。"
+			cfgErr = "模型未配置：" + err.Error() + "\n请在界面中执行 /model 填写，并选择写入全局配置。"
 		}
 	} else {
 		cfg = config.Load()
@@ -137,12 +141,16 @@ func main() {
 	if err := a.reloadMCP(); err != nil {
 		loadErr = strings.TrimSpace(loadErr + "\nMCP：" + err.Error())
 	}
+	a.pluginMgr = plugins.NewManager(pluginHost{app: a})
+	if err := a.pluginMgr.Start(); err != nil {
+		loadErr = strings.TrimSpace(loadErr + "\n插件：" + err.Error())
+	}
 	if err := plan.Activate(a.workDir, a.mgr.Current()); err != nil {
 		loadErr = strings.TrimSpace(loadErr + "\n任务清单：" + err.Error())
 	}
 	a.watchIdleInterrupt()
 
-	// GUI 须占主线程 Run；REPL 放到 goroutine。
+	// GUI / Web 须占主线程 Run；REPL 放到 goroutine。
 	if runner, ok := a.ui.(ui.DesktopRunner); ok {
 		go func() {
 			a.bannerAndLoop(cfg, loadErr)
@@ -182,8 +190,8 @@ func (a *app) bannerAndLoop(cfg config.Config, loadErr string) {
 	if loadErr != "" {
 		a.ui.Error(loadErr)
 	}
-	// GUI：短欢迎，避免把帮助全文灌进聊天区；TUI/plain 仍给稍全的一行摘要。
-	if _, isGUI := a.ui.(ui.DesktopRunner); isGUI {
+	// GUI / Web：短欢迎，避免把帮助全文灌进聊天区；TUI/plain 仍给稍全的一行摘要。
+	if _, isDesktop := a.ui.(ui.DesktopRunner); isDesktop {
 		a.ui.Info(fmt.Sprintf(
 			"工作目录 %s · %s / %s · 会话 %s\n输入消息开始对话；点 /model 配置模型，/help 查看帮助。",
 			cfg.WorkDir, cfg.Provider, cfg.Model, a.mgr.Current(),
@@ -646,7 +654,7 @@ func (a *app) cmdSkillUnuse(args []string) {
 }
 
 func slashCommands() []ui.SlashCmd {
-	return []ui.SlashCmd{
+	cmds := []ui.SlashCmd{
 		{Name: "/model", Desc: "配置供应商与模型"},
 		{Name: "/help", Desc: "显示帮助"},
 		{Name: "/pwd", Desc: "显示工作目录"},
@@ -663,6 +671,7 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/memory", Desc: "列出长期记忆"},
 		{Name: "/rag", Desc: "查看 RAG 索引"},
 		{Name: "/mcp", Desc: "查看 MCP 连接"},
+		{Name: "/plugins", Desc: "查看编译期插件"},
 		{Name: "/undo", Desc: "撤销最近一次写文件"},
 		{Name: "/permissions", Desc: "查看工具权限规则"},
 		{Name: "/save", Desc: "保存会话"},
@@ -671,6 +680,10 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/compact", Desc: "压缩历史"},
 		{Name: "/exit", Desc: "保存并退出"},
 	}
+	for _, c := range plugins.Commands() {
+		cmds = append(cmds, ui.SlashCmd{Name: "/" + c.Name, Desc: c.Description})
+	}
+	return cmds
 }
 
 // panel 每帧向 TUI 提供模型/会话/上下文与用量快照。
@@ -928,6 +941,23 @@ func (a *app) handleCommand(line string) bool {
 		if a.mcpMgr != nil {
 			a.ui.Info(strings.Join(a.mcpMgr.StatusLines(), "\n"))
 		}
+	case "/plugins":
+		if a.pluginMgr == nil {
+			a.ui.Info("插件管理器未初始化")
+			break
+		}
+		if len(args) > 0 {
+			if !strings.EqualFold(args[0], "reload") {
+				a.ui.Info("用法：/plugins 查看插件，/plugins reload 重新执行 onExit / onStart")
+				break
+			}
+			if err := a.pluginMgr.Reload(); err != nil {
+				a.ui.Error("插件重载：" + err.Error())
+			} else {
+				a.ui.Info("（插件已重载）")
+			}
+		}
+		a.ui.Info(strings.Join(a.pluginMgr.Lines(), "\n"))
 	case "/undo":
 		msg, err := tools.UndoLast()
 		if err != nil {
@@ -957,6 +987,14 @@ func (a *app) handleCommand(line string) bool {
 		a.exit()
 		return true
 	default:
+		if a.pluginMgr != nil {
+			if handled, err := a.pluginMgr.Run(cmd, args); handled {
+				if err != nil {
+					a.ui.Error("插件命令失败：" + err.Error())
+				}
+				break
+			}
+		}
 		a.ui.Info(fmt.Sprintf("未知命令：%s（输入 /help 查看）", cmd))
 	}
 	a.ui.Refresh()
@@ -974,6 +1012,9 @@ func openDirArg(line, id string) string {
 func (a *app) exit() {
 	a.exitOnce.Do(func() {
 		renamed, err := a.mgr.PrepareExit()
+		if a.pluginMgr != nil {
+			a.pluginMgr.Close()
+		}
 		if a.mcpMgr != nil {
 			a.mcpMgr.Close()
 		}
@@ -992,7 +1033,7 @@ func (a *app) exit() {
 
 // helpText 返回 /help 文案（含会话路径、已注册工具与相关环境变量）。
 func helpText() string {
-	return fmt.Sprintf(`可用命令：
+	text := fmt.Sprintf(`可用命令：
   /model             模型配置（↑/↓ 选菜单项，Enter 进入；也可 /model list）
   /help              显示帮助
   /pwd               显示当前工作目录（工具读写基准）
@@ -1009,6 +1050,7 @@ func helpText() string {
   /memory            列出当前项目的长期记忆（.geekagent/memory.json）
   /rag               查看当前项目的 RAG 索引；/rag clear 清空索引
   /mcp               查看 MCP server 连接；/mcp reload 重新加载 .geekagent/mcp.json
+  /plugins           查看编译期插件；/plugins reload 重新执行 onExit / onStart
   /undo              撤销最近一次 write/patch（最多 20 步，不撤销 shell）
   /permissions       查看工具权限规则（项目与用户 GeekAgent.json，项目优先）
   /save              保存全部会话到 %s
@@ -1021,7 +1063,7 @@ API Key：项目 .env、上级目录 .env，或全局 %%USERPROFILE%%\\.hi-agent
 %s
 回复进行中按 Ctrl+C 中断当前轮；空闲时按 Ctrl+C 保存并退出。
 已注册工具：%s
-界面：GEEKAGENT_UI=tui|plain|gui（默认 tui；web 预留）；GEEKAGENT_TUI=0 兼容为 plain。
+界面：GEEKAGENT_UI=tui|plain|gui|web（默认 tui）；GEEKAGENT_TUI=0 兼容为 plain；web 地址用 GEEKAGENT_WEB_ADDR。
 输入：敲 / 显示命令提示，Tab 补全；/model 配置模型；滚轮或 PgUp 上翻。
 过程：工具调用与 <think> 思考默认折叠为一行摘要；GEEKAGENT_FOLD=0 展开全文。
 用量：GEEKAGENT_CONTEXT_WINDOW（默认 128000）；GEEKAGENT_STREAM_USAGE=0 关闭流式用量。
@@ -1031,4 +1073,29 @@ API Key：项目 .env、上级目录 .env，或全局 %%USERPROFILE%%\\.hi-agent
 回复预算 GEEKAGENT_MAX_REPLY_CHARS（默认 120000，0=关闭）；
 工具收缩 GEEKAGENT_SHRINK_TOOLS_AFTER（默认约 3/4 轮次起只读，0=关闭）。`,
 		session.Path(), config.ProviderHelp(), strings.Join(tools.Names(), ", "))
+	if lines := plugins.CommandLines(); len(lines) > 0 {
+		text += "\n插件命令：\n  " + strings.Join(lines, "\n  ")
+	}
+	return text
 }
+
+// pluginHost 把 app 的当前状态与 UI 能力暴露给插件。
+type pluginHost struct{ app *app }
+
+func (h pluginHost) WorkDir() string { return h.app.workDir }
+func (h pluginHost) Info(s string)   { h.app.ui.Info(s) }
+func (h pluginHost) Error(s string)  { h.app.ui.Error(s) }
+
+func (h pluginHost) Confirm(prompt string) bool { return h.app.ui.Confirm(prompt) }
+
+func (h pluginHost) RegisterTool(t tools.Tool) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("注册工具 %s 失败：%v", t.Name, r)
+		}
+	}()
+	tools.Register(t)
+	return nil
+}
+
+func (h pluginHost) UnregisterTool(name string) { tools.Unregister(name) }

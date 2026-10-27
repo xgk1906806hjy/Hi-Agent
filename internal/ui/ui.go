@@ -13,7 +13,7 @@ const (
 	KindPlain Kind = "plain" // 纯文本终端
 	KindTUI   Kind = "tui"   // 轻量全屏 TUI（已实现）
 	KindGUI   Kind = "gui"   // 桌面 GUI（Wails，需 desktop 构建标签）
-	KindWeb   Kind = "web"   // Web UI（预留）
+	KindWeb   Kind = "web"   // 浏览器 UI（internal/webui，HTTP + SSE）
 )
 
 // MainPrompt REPL 主循环的输入提示；其它提示表示某条命令正在向用户索取参数。

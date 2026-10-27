@@ -20,7 +20,7 @@ flowchart TD
   D --> E[cd 到要改的项目目录]
   E --> F[执行 hi-agent]
   F --> G[加载：进程环境 / 项目.env / 全局 ~/.hi-agent/.env]
-  G --> H[以 cwd 为工作区启动界面：TUI 默认 / plain / GUI 桌面窗]
+  G --> H[以 cwd 为工作区启动界面：TUI 默认 / plain / GUI 桌面窗 / Web 浏览器]
   H --> I{输入}
   I -->|对话| J[流式回复 + 工具读写/改文件]
   I -->|斜杠命令| K[/pwd /status /sessions …]
@@ -117,8 +117,9 @@ hi-agent
 | `tui`（默认） | 终端全屏 | 左侧对话、右侧用量面板 |
 | `plain` | 纯文本终端 | 兼容旧变量 `GEEKAGENT_TUI=0` |
 | `gui` | 桌面窗口（Wails + React） | 须用 `scripts/build-gui` 打出的桌面版二进制；精密纸面 + 标题栏、项目/会话侧栏、Markdown 对话流 |
+| `web` | 本机浏览器（HTTP + SSE） | 终端版设 `GEEKAGENT_UI=web`；默认 http://127.0.0.1:8787，`GEEKAGENT_WEB_ADDR` 可改监听地址 |
 
-终端版二进制不含桌面界面：对它设 `GEEKAGENT_UI=gui` 会提示用 build-gui 构建。桌面版 exe 已通过 ldflags 默认进入 GUI。
+终端版二进制不含桌面界面：对它设 `GEEKAGENT_UI=gui` 会提示用 build-gui 构建。桌面版 exe 已通过 ldflags 默认进入 GUI；Web 模式请用终端版启动。
 
 从源码直接运行终端界面：`go run ./cmd/hi-agent`。
 
@@ -157,6 +158,8 @@ hi-agent
 2. 工具以当前目录为工作区：`ls` / `glob` / `read` / `search` / `write` / `patch` / `run_shell`，抓取网页的 `fetch`，以及轻 RAG 的 `rag_add` / `rag_search`（写文件、shell 与 fetch 需确认；search / rag_search 免确认）。
 3. 斜杠命令见下表；输入 `/` 可展开命令菜单。
 4. MCP：在项目 `.geekagent/mcp.json` 配置 stdio server（`mcpServers` 或 `servers`），启动时连接；工具以 `mcp_<server>_<tool>` 注册，用 `/mcp` 查看连接。MCP 工具默认 `deny`，需在 `.geekagent/GeekAgent.json` 的 `allow` 中放行具体工具或 `mcp_<server>_*`。
+5. 插件：`plugins/<名称>/` 的 Go 包在 `init()` 中注册，由 `plugins/all` 编译期导入；用 `/plugins` 查看，`/echo <文本>` 是示例命令。
+6. Web：`GEEKAGENT_UI=web hi-agent`，浏览器打开终端打印的地址即可聊天；默认只监听回环地址。
 
 ```json
 {
@@ -173,14 +176,14 @@ hi-agent
 
 各界面的操作差异：
 
-| 操作 | TUI / plain | GUI |
-|------|-------------|-----|
-| 斜杠命令 | 输入 `/`（TUI 支持 Tab 补全） | 输入框输入，或点底部快捷按钮 |
-| 菜单选择（`/model` 等） | ↑/↓ 选择，Enter 确认 | 弹出列表，点选后按「选择」 |
-| 危险操作确认 | 输入 `y` / `n` | 弹窗点「确认」/「取消」 |
-| 查看历史消息 | PgUp/PgDn 或鼠标滚轮 | 聊天区直接滚动 |
-| 中断当前回复 | Ctrl+C | 点输入框旁的「停止」 |
-| 退出 | `/exit` 或空闲 Ctrl+C | `/exit` 或直接关闭窗口 |
+| 操作 | TUI / plain | GUI | Web |
+|------|-------------|-----|-----|
+| 斜杠命令 | 输入 `/`（TUI 支持 Tab 补全） | 输入框输入，或点底部快捷按钮 | 输入框输入，或点侧栏命令 |
+| 菜单选择（`/model` 等） | ↑/↓ 选择，Enter 确认 | 弹出列表，点选后按「选择」 | 浏览器 prompt 输入序号 |
+| 危险操作确认 | 输入 `y` / `n` | 弹窗点「确认」/「取消」 | 浏览器 confirm |
+| 查看历史消息 | PgUp/PgDn 或鼠标滚轮 | 聊天区直接滚动 | 聊天区直接滚动 |
+| 中断当前回复 | Ctrl+C | 点输入框旁的「停止」 | 点「停止」 |
+| 退出 | `/exit` 或空闲 Ctrl+C | `/exit` 或直接关闭窗口 | `/exit`（关闭标签不会结束进程） |
 
 退出时都会自动保存会话到 `.geekagent/sessions.json`。
 
@@ -210,6 +213,8 @@ hi-agent
 | `/memory` | 列出项目长期记忆 |
 | `/rag` | 查看 RAG 索引；`/rag clear` 清空索引 |
 | `/mcp` | 查看 MCP 连接；`/mcp reload` 重读 `.geekagent/mcp.json` |
+| `/plugins` | 查看编译期插件与生命周期；`/plugins reload` 重新执行 `onExit` / `onStart` |
+| `/echo <文本>` | 示例插件命令（内置命令未命中时再查插件命令表） |
 | `/undo` | 撤销最近一次 write/patch（最多 20 步） |
 | `/permissions` | 显示项目与用户权限规则 |
 | `/exit` | 保存并退出 |
@@ -238,7 +243,7 @@ hi-agent
 
 ---
 
-## 当前能力（Day 1–15）
+## 当前能力（Day 1–16）
 
 - 流式多轮对话（OpenAI 兼容接口）与工具循环护栏
 - 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`、`rag_add` / `rag_search`、`search` / `fetch`
@@ -251,9 +256,11 @@ hi-agent
 - 技能：`skills/*/SKILL.md` + `/use` `/unuse` `/skills`，system 片段与工具白名单
 - 多会话持久化、轻量 TUI + token 面板
 - 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理、技能卡片、MCP 连接状态
+- 编译期插件：`plugins/*` + `internal/plugins`，`onStart` / `onExit`、插件命令回退、插件工具；`/plugins`、`/echo`
+- Web 模式：`GEEKAGENT_UI=web` 启动 HTTP + SSE 浏览器界面，复用 GUI Adapter 与事件协议
 - 全局 CLI + `setup-env` 一键环境配置
 
-**下一步：Day 16**（插件框架：`plugins/*/plugin.ts`、`PluginContext`、`onStart` / `onExit`）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
+**Day 16 已完成**（插件框架 + Web 模式）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
 
 ## 工程结构
 
@@ -269,10 +276,13 @@ internal/plan/      # 任务清单（todos.json）
 internal/memory/    # 长期记忆（memory.json、BM25 主动召回）
 internal/rag/       # 轻 RAG（rag/index.json、切块 + BM25）
 internal/mcp/       # MCP stdio 客户端（mcp.json、动态工具注册）
+internal/plugins/   # 编译期插件注册、生命周期与命令分派
+plugins/            # 插件示例（echo / web）与 all 汇总
 internal/skills/    # 技能扫描（skills/*/SKILL.md）
 internal/tui/       # 轻量全屏界面与面板
-internal/ui/        # UI 抽象工厂（plain / tui / gui）
+internal/ui/        # UI 抽象工厂（plain / tui / gui / web）
 internal/gui/       # Wails 桌面对话壳（desktop 标签 + React 前端）
+internal/webui/     # 浏览器界面（HTTP + SSE，复用 gui.Adapter）
 internal/workspace/ # 项目注册表与会话列表
 scripts/            # install + setup-env + build-gui（Windows / Linux）
 docs/               # 模块功能逻辑 + 改动记录

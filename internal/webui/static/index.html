@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hi-agent · Web</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f5f2;
+      --panel: #fffefa;
+      --line: #ddd9d0;
+      --text: #282623;
+      --muted: #78736b;
+      --accent: #2f6fed;
+      --accent-soft: #e8efff;
+      --user: #e8efff;
+      --err: #b42318;
+      --warn: #9a6700;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1917;
+        --panel: #23211e;
+        --line: #3b3732;
+        --text: #eee9e1;
+        --muted: #aaa39a;
+        --accent: #7aa2ff;
+        --accent-soft: #293449;
+        --user: #293449;
+        --err: #ff8a80;
+        --warn: #f2c94c;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    #app { display: flex; flex-direction: column; height: 100%; }
+    header {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+    }
+    .brand { font-weight: 700; letter-spacing: .02em; }
+    .brand span { color: var(--accent); }
+    .status { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status strong { color: var(--text); font-weight: 600; }
+    .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); flex: 1; min-height: 0; }
+    aside {
+      border-right: 1px solid var(--line); padding: 14px; overflow: auto;
+      background: color-mix(in srgb, var(--panel) 70%, var(--bg));
+    }
+    aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; }
+    .nav-project { margin-bottom: 12px; }
+    .nav-project > button { font-weight: 600; }
+    .nav-session { padding-left: 10px; }
+    button {
+      border: 0; background: transparent; color: var(--text); cursor: pointer;
+      border-radius: 6px; padding: 4px 6px; text-align: left; font: inherit;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    button:hover { background: var(--accent-soft); }
+    .nav-session.current { color: var(--accent); }
+    .slash { margin-top: 18px; }
+    .slash button { display: block; width: 100%; color: var(--muted); font-size: 12px; }
+    .slash button:hover { color: var(--text); }
+    main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    #messages { flex: 1; overflow: auto; padding: 22px clamp(16px, 5vw, 80px); }
+    .msg { max-width: 920px; margin: 0 auto 14px; }
+    .msg .role { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+    .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.user .body {
+      background: var(--user); border-radius: 12px; padding: 9px 13px; width: fit-content;
+      max-width: 100%; margin-left: auto;
+    }
+    .msg.user .role { text-align: right; }
+    .msg.assistant .body { padding: 2px 0; }
+    .msg.note .body, .msg.progress .body {
+      color: var(--muted); font-size: 13px; border-left: 2px solid var(--line);
+      padding-left: 10px; white-space: pre-wrap;
+    }
+    .msg.error .body { color: var(--err); }
+    .msg.notice .body { color: var(--warn); }
+    .msg.tool .body { color: var(--muted); font-size: 13px; }
+    .composer-wrap { padding: 12px clamp(16px, 5vw, 80px) 18px; }
+    form {
+      max-width: 920px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.08);
+    }
+    textarea {
+      flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--text);
+      min-height: 42px; max-height: 180px; padding: 8px; font: inherit; line-height: 1.45;
+    }
+    form button {
+      padding: 8px 14px; background: var(--accent); color: #fff; border-radius: 9px; font-weight: 600;
+    }
+    form button:disabled { opacity: .45; cursor: not-allowed; }
+    #stop { background: transparent; color: var(--err); border: 1px solid var(--line); }
+    .hint { max-width: 920px; margin: 6px auto 0; color: var(--muted); font-size: 11px; }
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { display: none; }
+      #messages { padding: 14px; }
+      .composer-wrap { padding: 10px 14px 14px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Hi-agent <span>Web</span></div>
+    <div class="status" id="status">正在连接…</div>
+  </header>
+  <div class="layout">
+    <aside>
+      <h2>项目 / 会话</h2>
+      <div id="nav"></div>
+      <div class="slash">
+        <h2>命令</h2>
+        <div id="slash"></div>
+      </div>
+    </aside>
+    <main>
+      <div id="messages" aria-live="polite"></div>
+      <div class="composer-wrap">
+        <form id="composer">
+          <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行" autocomplete="off"></textarea>
+          <button id="stop" type="button" hidden>停止</button>
+          <button id="send" type="submit">发送</button>
+        </form>
+        <div class="hint">Web 模式使用与桌面端相同的事件协议；停止按钮可中断当前回复。</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const messages = $("messages");
+  const input = $("input");
+  const composer = $("composer");
+  const sendBtn = $("send");
+  const stopBtn = $("stop");
+  const statusEl = $("status");
+  const navEl = $("nav");
+  const slashEl = $("slash");
+
+  let busy = false;
+  let assistant = null;
+  let reconnectNote = false;
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function scrollToBottom() {
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function addMessage(role, text, cls) {
+    const wrap = el("div", "msg " + (cls || role));
+    wrap.appendChild(el("div", "role", roleLabel(role)));
+    const body = el("div", "body", text == null ? "" : String(text));
+    wrap.appendChild(body);
+    messages.appendChild(wrap);
+    scrollToBottom();
+    return wrap;
+  }
+
+  function roleLabel(role) {
+    switch (role) {
+      case "user": return "你";
+      case "assistant": return "Hi-agent";
+      case "tool": return "工具";
+      case "error": return "错误";
+      case "notice": return "提示";
+      case "progress": return "过程";
+      case "info": return "系统";
+      default: return role;
+    }
+  }
+
+  function clearMessages() {
+    messages.replaceChildren();
+    assistant = null;
+  }
+
+  function appendAssistant(text) {
+    if (!assistant) {
+      assistant = addMessage("assistant", "");
+    }
+    const body = assistant.querySelector(".body");
+    body.textContent += text || "";
+    scrollToBottom();
+  }
+
+  function setBusy(value) {
+    busy = !!value;
+    sendBtn.disabled = busy;
+    stopBtn.hidden = !busy;
+  }
+
+  function setStatus(s) {
+    if (!s) return;
+    const bits = [];
+    if (s.model) bits.push(s.model);
+    if (s.provider) bits.push(s.provider);
+    if (s.session) bits.push("会话 " + s.session);
+    if (s.workDir) bits.push(s.workDir);
+    statusEl.textContent = bits.join(" · ") || "已连接";
+    statusEl.title = bits.join("\n");
+    setBusy(s.busy);
+  }
+
+  function renderNav(nav) {
+    navEl.replaceChildren();
+    const projects = (nav && nav.projects) || [];
+    if (!projects.length) {
+      navEl.appendChild(el("div", "status", "暂无项目"));
+      return;
+    }
+    for (const p of projects) {
+      const box = el("div", "nav-project");
+      const pb = el("button", p.current ? "current" : "", (p.name || p.path || "项目"));
+      pb.title = p.path || "";
+      pb.addEventListener("click", () => sendRaw("/project " + (p.path || "")));
+      box.appendChild(pb);
+      for (const s of (p.sessions || [])) {
+        const sb = el("button", "nav-session" + (s.current ? " current" : ""), (s.title || s.id) + "  " + (s.messages || 0));
+        sb.title = s.id || "";
+        sb.addEventListener("click", () => {
+          if (p.current) sendRaw("/open " + s.id);
+          else sendRaw("/open " + s.id + " " + (p.path || ""));
+        });
+        box.appendChild(sb);
+      }
+      navEl.appendChild(box);
+    }
+  }
+
+  function renderSlash(slash) {
+    slashEl.replaceChildren();
+    for (const c of (slash || [])) {
+      const b = el("button", "", c.name + (c.desc ? "  " + c.desc : ""));
+      b.title = c.desc || c.name;
+      b.addEventListener("click", () => {
+        input.value = c.name + " ";
+        input.focus();
+      });
+      slashEl.appendChild(b);
+    }
+  }
+
+  async function loadSnapshot() {
+    try {
+      const r = await fetch("/api/snapshot", { cache: "no-store" });
+      if (!r.ok) throw new Error("snapshot " + r.status);
+      const snap = await r.json();
+      setStatus(snap.status);
+      renderNav(snap.nav);
+      renderSlash(snap.slash);
+      if (snap.prompt) input.placeholder = snap.prompt;
+    } catch (e) {
+      statusEl.textContent = "快照加载失败：" + e.message;
+    }
+  }
+
+  async function post(path, body) {
+    const r = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r;
+  }
+
+  async function sendRaw(text) {
+    const value = String(text == null ? "" : text).trim();
+    if (!value || busy) return;
+    try {
+      await post("/api/submit", { text: value });
+    } catch (e) {
+      addMessage("error", "发送失败：" + e.message);
+    }
+  }
+
+  composer.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = input.value.trim();
+    if (!text || busy) return;
+    input.value = "";
+    input.style.height = "";
+    sendRaw(text);
+  });
+
+  stopBtn.addEventListener("click", () => {
+    post("/api/stop", {}).catch((e) => addMessage("error", "停止失败：" + e.message));
+  });
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 180) + "px";
+  });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
+      ev.preventDefault();
+      composer.requestSubmit();
+    }
+  });
+
+  function on(event, fn) {
+    const source = window.__hiAgentEvents;
+    source.addEventListener(event, (ev) => {
+      let payload = null;
+      if (ev.data && ev.data !== "null") {
+        try { payload = JSON.parse(ev.data); } catch (_) { payload = ev.data; }
+      }
+      fn(payload);
+    });
+  }
+
+  async function answer(id, value) {
+    try { await post("/api/answer", { id, value }); }
+    catch (e) { addMessage("error", "对话框回复失败：" + e.message); }
+  }
+
+  async function boot() {
+    await loadSnapshot();
+    const source = new EventSource("/api/events");
+    window.__hiAgentEvents = source;
+    source.onopen = () => {
+      if (reconnectNote) addMessage("info", "已重新连接 Web 服务");
+      reconnectNote = false;
+    };
+    source.onerror = () => {
+      reconnectNote = true;
+      statusEl.textContent = "Web 连接断开，正在重连…";
+    };
+
+    on("chat:user", (p) => {
+      assistant = null;
+      addMessage("user", p && p.text);
+    });
+    on("chat:delta", (p) => appendAssistant(p && p.text));
+    on("chat:progress", (p) => addMessage("progress", p && p.text));
+    on("chat:info", (p) => addMessage("info", p && p.text));
+    on("chat:notice", (p) => addMessage("notice", p && p.text));
+    on("chat:error", (p) => addMessage("error", p && p.text));
+    on("chat:reset", (p) => {
+      clearMessages();
+      for (const t of ((p && p.turns) || [])) {
+        const role = t.role === "tool" ? "tool" : t.role;
+        addMessage(role, t.text, role === "tool" ? "tool" : undefined);
+      }
+    });
+    on("turn:begin", () => {
+      assistant = null;
+      setBusy(true);
+    });
+    on("turn:end", () => {
+      assistant = null;
+      setBusy(false);
+    });
+    on("status", (p) => setStatus(p));
+    on("nav", (p) => renderNav(p));
+    on("input:prompt", (p) => {
+      const prompt = (p && p.prompt) || "";
+      input.placeholder = prompt || "输入消息，Enter 发送，Shift+Enter 换行";
+    });
+    on("dialog:confirm", (p) => {
+      if (!p) return;
+      const ok = window.confirm(p.prompt || "确认操作？");
+      answer(p.id, ok ? 1 : 0);
+    });
+    on("dialog:select", (p) => {
+      if (!p) return;
+      const items = p.items || [];
+      const text = items.map((it, i) => (i + 1) + ". " + it).join("\n");
+      const raw = window.prompt((p.title || "请选择") + "\n" + text, String((p.selected || 0) + 1));
+      if (raw === null) { answer(p.id, -1); return; }
+      const n = parseInt(raw, 10);
+      answer(p.id, Number.isFinite(n) ? n - 1 : -1);
+    });
+    on("dialog:dismiss", () => {});
+  }
+
+  boot().catch((e) => {
+    statusEl.textContent = "启动失败：" + e.message;
+    addMessage("error", "Web 界面启动失败：" + e.message);
+  });
+})();
+</script>
+</body>
+</html>

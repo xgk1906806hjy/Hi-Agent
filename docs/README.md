@@ -29,6 +29,8 @@ Day 只表示开发里程碑，见 `doc/开发方案-按Day.md`。代码统一�
 | [memory](./memory/) | 项目长期记忆（Day 10 / 13） | `internal/memory/` | `memory.json` 追加、子串搜索、切块 + BM25 主动召回 |
 | [rag](./rag/) | 项目轻 RAG（Day 14） | `internal/rag/` | `.geekagent/rag/index.json`、切块 + BM25、来源段号 |
 | [mcp](./mcp/) | MCP stdio 客户端（Day 15） | `internal/mcp/` | `.geekagent/mcp.json`、握手 / tools、动态注册、权限默认 deny |
+| [plugins](./plugins/) | 编译期插件框架（Day 16） | `internal/plugins/` + `plugins/` | 注册、`onStart` / `onExit`、命令回退、插件工具 |
+| [web](./web/) | 浏览器界面（Day 16） | `internal/webui/` | HTTP + SSE、复用 GUI Adapter 协议、本机监听 |
 | [skills](./skills/) | 技能加载（Day 11） | `internal/skills/` | `skills/*/SKILL.md`、system 片段与工具白名单 |
 | [repl](./repl/) | REPL 与斜杠命令 | `cmd/hi-agent/` | 启动、命令表、经 ui 工厂创建界面 |
 
@@ -39,7 +41,7 @@ cmd/hi-agent (repl)
     ├── config
     ├── color
     ├── workspace
-    ├── ui ──► plain | tui(──► color) | gui(──► Wails/React，desktop 标签) | web(预留)
+    ├── ui ──► plain | tui(──► color) | gui(──► Wails/React，desktop 标签) | web(──► webui / SSE)
     ├── session ──► chat
     ├── chat ──► tools
     ├── permission（Load / SafePath / Redact → 注入 tools 钩子）
@@ -47,6 +49,8 @@ cmd/hi-agent (repl)
     ├── memory（长期记忆；memory_write / memory_search、/memory；RecallNote 经 SetRecall 注入 chat）
     ├── rag（轻 RAG；rag_add / rag_search、/rag；索引跟随 cwd）
     ├── mcp（stdio 客户端；mcp_<server>_<tool> 动态注册；/mcp；默认 deny）
+    ├── plugins（plugins/* 编译期注册；/plugins；命令回退；插件工具）
+    ├── webui（KindWeb；复用 gui.Adapter + SSE；浏览器页面）
     ├── skills（技能；skills/*/SKILL.md → system 片段 + 工具白名单）
     └── tools（SetConfirm / SetPolicy / SetPathGuard / SetRedactor / UndoLast）
 ```

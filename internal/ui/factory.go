@@ -17,7 +17,8 @@ var (
 
 func init() {
 	// plain / tui 在各自文件的 init 中 Register。
-	// gui 由 internal/gui（desktop 构建标签）在 init 中覆盖本占位。
+	// gui 由 internal/gui（desktop 构建标签）在 init 中覆盖本占位；
+	// web 由 internal/webui 在 init 中覆盖本占位。
 	Register(KindGUI, func(Options) (UI, error) {
 		return nil, fmt.Errorf("当前程序是终端版，不含桌面界面；请用 scripts/build-gui 构建桌面版")
 	})
