@@ -31,6 +31,7 @@ export function Sidebar() {
       </div>
       <TodoList items={status?.todos ?? []} />
       <SkillList items={status?.skills ?? []} />
+      <MCPList items={status?.mcp ?? []} />
       <div className={`min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 ${locked ? "opacity-70" : ""}`} title={locked ? lockReason : undefined}>
         {nav.projects.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted">点 + 添加项目文件夹</p>
@@ -205,6 +206,22 @@ function SkillList({ items }: { items: string[] }) {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function MCPList({ items }: { items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mx-3 mb-3.5 rounded-xl border border-line bg-surface px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.9)] dark:shadow-none">
+      <div className="mb-2 text-[11px] font-semibold text-muted">MCP</div>
+      <ul className="space-y-1">
+        {items.map((line) => (
+          <li key={line} className="truncate text-[11px] leading-snug text-muted" title={line}>
+            {line}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -171,10 +171,10 @@ Hi-agent/
 
 ## 6. 当前进度
 
-**已完成：Day 1–14**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚、任务清单与子任务委派、项目指令与长期记忆、技能加载、内容搜索与网页抓取、主动记忆、轻 RAG）。
+**已完成：Day 1–15**（REPL、工具循环、Bash、文件工具、历史压缩、多会话、轻量 TUI + 用量、权限与回滚、任务清单与子任务委派、项目指令与长期记忆、技能加载、内容搜索与网页抓取、主动记忆、轻 RAG、MCP stdio 客户端）。
 
 工具循环护栏（轮次 / 重复熔断 / 预算 / 收缩）已作为横切能力落地。  
-另：Wails 桌面 GUI（精密纸面、无边框标题栏 + Orbit 图标、主题三态、项目 > 会话侧栏、跨项目重命名/删除、斜杠补全、技能卡片）与 `workspace` 项目注册表已落地。
+另：Wails 桌面 GUI（精密纸面、无边框标题栏 + Orbit 图标、主题三态、项目 > 会话侧栏、跨项目重命名/删除、斜杠补全、技能卡片、MCP 状态）与 `workspace` 项目注册表已落地。
 
 Day 8 的 Go 落地方式（对照原 TS 方案）：
 
@@ -185,7 +185,7 @@ Day 8 的 Go 落地方式（对照原 TS 方案）：
 | `undo.ts` | `tools.UndoLast` + `.geekagent/undo.json`（最多 20 条；不撤销 shell） |
 | 命令 | `/undo`、`/permissions` |
 
-**下一步：Day 15**（MCP 客户端：`.geekagent/mcp.json`、stdio、`mcp_<server>_<tool>`），按下方路线图推进。
+**下一步：Day 16**（插件框架），按下方路线图推进。
 
 ## 7. Day 9–16 路线图（Go 落地规划）
 
@@ -199,5 +199,5 @@ Day 8 的 Go 落地方式（对照原 TS 方案）：
 | 12（已完成） | `search`（路径:行号，纯 Go）、`fetch`（去 HTML 标签） | `search`（默认 allow）、`fetch`（默认 ask） | — | — |
 | 13（已完成） | `internal/memory` 切块 + BM25（Top5）；`chat.SetRecall` 每轮注入临时 system，不进 history | — | — | — |
 | 14（已完成） | `internal/rag`，索引 `.geekagent/rag/index.json`，回答附来源段号 | `rag_add`、`rag_search` | `/rag` | — |
-| 15 | `internal/mcp`：stdio 客户端，读 `.geekagent/mcp.json`，注册 `mcp_<server>_<tool>`；权限走 Day 8（未知默认 deny） | 动态 | `/mcp` | GUI 显示连接状态 |
+| 15（已完成） | `internal/mcp`：stdio 客户端，读 `.geekagent/mcp.json`，注册 `mcp_<server>_<tool>`；权限走 Day 8（未知默认 deny） | 动态 | `/mcp` | GUI 显示连接状态 |
 | 16 | 插件框架：编译期注册 `plugins/*` 代替 TS 动态加载，`onStart` / `onExit` + 插件命令表；顺带落地 `KindWeb`（SSE），复用 GUI 协议与前端 | 插件声明 | `/plugins` | Web 模式 |

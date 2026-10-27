@@ -25,6 +25,7 @@ export function createMockBridge(): Bridge {
     policy: ["配置文件：无", "内置默认：只读工具 allow，run_shell / write / patch ask"],
     todos: [],
     skills: [],
+    mcp: [],
   };
   let nav: Nav = {
     projects: [

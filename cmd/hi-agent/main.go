@@ -20,6 +20,7 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/chat"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/color"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/config"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/mcp"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/memory"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
@@ -41,6 +42,7 @@ type app struct {
 	provider         string
 	baseURL          string
 	apiKey           string
+	mcpMgr           *mcp.Manager
 	policy           *permission.Policy
 	policyAt         time.Time
 	policyExists     bool
@@ -116,7 +118,7 @@ func main() {
 	a := &app{
 		chat: c, mgr: session.NewManager(c, data), workDir: cfg.WorkDir,
 		provider: cfg.Provider, baseURL: cfg.BaseURL, apiKey: cfg.APIKey,
-		activeSkills: map[string]bool{},
+		mcpMgr: mcp.New(), activeSkills: map[string]bool{},
 	}
 
 	in := bufio.NewReader(os.Stdin)
@@ -131,6 +133,9 @@ func main() {
 	})
 	if err := a.installPermissions(); err != nil {
 		loadErr = strings.TrimSpace(loadErr + "\n权限配置：" + err.Error())
+	}
+	if err := a.reloadMCP(); err != nil {
+		loadErr = strings.TrimSpace(loadErr + "\nMCP：" + err.Error())
 	}
 	if err := plan.Activate(a.workDir, a.mgr.Current()); err != nil {
 		loadErr = strings.TrimSpace(loadErr + "\n任务清单：" + err.Error())
@@ -320,6 +325,9 @@ func (a *app) switchProject(path string) bool {
 	if err := a.reloadPolicy(); err != nil {
 		a.ui.Error("权限配置：" + err.Error())
 	}
+	if err := a.reloadMCP(); err != nil {
+		a.ui.Error("MCP：" + err.Error())
+	}
 	a.ui.Info("已切换项目：" + abs + "\n当前会话：" + a.mgr.Current())
 	return true
 }
@@ -342,6 +350,14 @@ func (a *app) installPermissions() error {
 	tools.SetPathGuard(func(p string) (string, error) { return permission.SafePath(a.workDir, p) })
 	tools.SetRedactor(func(s string) string { return permission.Redact(s, a.apiKey) })
 	return err
+}
+
+// reloadMCP 按当前工作区重新读取 .geekagent/mcp.json 并连接。
+func (a *app) reloadMCP() error {
+	if a.mcpMgr == nil {
+		a.mcpMgr = mcp.New()
+	}
+	return a.mcpMgr.Load(a.workDir)
 }
 
 // reloadPolicy 按当前工作目录重新读取权限配置；损坏时回退默认并返回错误。
@@ -399,6 +415,10 @@ func (a *app) statusSnapshot() ui.Status {
 	if a.policy != nil {
 		policyLines = a.policy.Lines()
 	}
+	mcpLines := []string{}
+	if a.mcpMgr != nil && a.mcpMgr.Configured() {
+		mcpLines = a.mcpMgr.StatusLines()
+	}
 	return ui.Status{
 		Model:          p.Model,
 		Provider:       a.provider,
@@ -413,6 +433,7 @@ func (a *app) statusSnapshot() ui.Status {
 		Policy:         policyLines,
 		Todos:          uiTodos,
 		Skills:         a.activeSkillNames(),
+		MCP:            mcpLines,
 	}
 }
 
@@ -641,6 +662,7 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/delete", Desc: "删除会话"},
 		{Name: "/memory", Desc: "列出长期记忆"},
 		{Name: "/rag", Desc: "查看 RAG 索引"},
+		{Name: "/mcp", Desc: "查看 MCP 连接"},
 		{Name: "/undo", Desc: "撤销最近一次写文件"},
 		{Name: "/permissions", Desc: "查看工具权限规则"},
 		{Name: "/save", Desc: "保存会话"},
@@ -893,6 +915,19 @@ func (a *app) handleCommand(line string) bool {
 			break
 		}
 		a.ui.Info(strings.Join(lines, "\n"))
+	case "/mcp":
+		if len(args) > 0 && !strings.EqualFold(args[0], "reload") {
+			a.ui.Info("用法：/mcp 查看连接，/mcp reload 重新读取 .geekagent/mcp.json")
+			break
+		}
+		if len(args) > 0 {
+			if err := a.reloadMCP(); err != nil {
+				a.ui.Error("MCP：" + err.Error())
+			}
+		}
+		if a.mcpMgr != nil {
+			a.ui.Info(strings.Join(a.mcpMgr.StatusLines(), "\n"))
+		}
 	case "/undo":
 		msg, err := tools.UndoLast()
 		if err != nil {
@@ -939,6 +974,9 @@ func openDirArg(line, id string) string {
 func (a *app) exit() {
 	a.exitOnce.Do(func() {
 		renamed, err := a.mgr.PrepareExit()
+		if a.mcpMgr != nil {
+			a.mcpMgr.Close()
+		}
 		a.ui.Close()
 		switch {
 		case err != nil:
@@ -970,6 +1008,7 @@ func helpText() string {
   /delete <id>       删除会话（需确认；删当前会话会切到最近的另一个）
   /memory            列出当前项目的长期记忆（.geekagent/memory.json）
   /rag               查看当前项目的 RAG 索引；/rag clear 清空索引
+  /mcp               查看 MCP server 连接；/mcp reload 重新加载 .geekagent/mcp.json
   /undo              撤销最近一次 write/patch（最多 20 步，不撤销 shell）
   /permissions       查看工具权限规则（项目与用户 GeekAgent.json，项目优先）
   /save              保存全部会话到 %s

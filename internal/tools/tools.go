@@ -41,6 +41,19 @@ func Register(t Tool) {
 	registry = append(registry, t)
 }
 
+// Unregister 移除已注册工具；不存在时无操作。
+// 供 MCP 等动态工具在关闭/重载时清理，避免重名与残留。
+func Unregister(name string) {
+	mu.Lock()
+	defer mu.Unlock()
+	for i := range registry {
+		if registry[i].Name == name {
+			registry = append(registry[:i], registry[i+1:]...)
+			return
+		}
+	}
+}
+
 // Names 返回已注册工具名（供 /help 等文案）。
 func Names() []string {
 	mu.RLock()

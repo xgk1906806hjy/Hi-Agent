@@ -59,6 +59,7 @@ type StatusPayload struct {
 	Policy         []string      `json:"policy"`
 	Todos          []TodoPayload `json:"todos"`
 	Skills         []string      `json:"skills"`
+	MCP            []string      `json:"mcp"`
 }
 
 // TodoPayload 镜像 ui.Todo。
@@ -133,7 +134,7 @@ func toStatus(s ui.Status) StatusPayload {
 		Model: s.Model, Provider: s.Provider, Session: s.Session, WorkDir: s.WorkDir, Busy: s.Busy,
 		CtxTokens: s.CtxTokens, CtxEstimated: s.CtxEstimated, CtxWindow: s.CtxWindow,
 		TurnPrompt: s.TurnPrompt, TurnCompletion: s.TurnCompletion, Messages: s.Messages,
-		Policy: s.Policy, Todos: toTodos(s.Todos), Skills: toStrings(s.Skills),
+		Policy: s.Policy, Todos: toTodos(s.Todos), Skills: toStrings(s.Skills), MCP: toStrings(s.MCP),
 	}
 }
 

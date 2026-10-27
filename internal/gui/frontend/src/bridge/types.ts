@@ -28,6 +28,7 @@ export interface Status {
   policy: string[];
   todos: TodoItem[];
   skills: string[];
+  mcp: string[];
 }
 
 export interface TodoItem {
