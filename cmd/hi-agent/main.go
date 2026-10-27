@@ -101,6 +101,7 @@ func main() {
 	// .env Overload 可能改掉界面变量；GUI 专用包（ldflags 注入了 defaultUI）始终强制进桌面窗。
 	forcePackagedUI()
 	c := chat.New(cfg.BaseURL, cfg.APIKey, cfg.Model)
+	c.SetRecall(memory.RecallNote)
 
 	data, err := session.Load()
 	loadErr := ""
@@ -707,7 +708,7 @@ func (a *app) reply(line string) {
 
 // isProgress 识别工具/压缩/预算等进度前缀，供 UI 与正文分流。
 func isProgress(delta string) bool {
-	for _, p := range []string{"\n[调用工具", "\n[历史压缩", "\n[工具轮次", "\n[重复工具", "\n[回复预算", "\n[工具集"} {
+	for _, p := range []string{"\n[调用工具", "\n[历史压缩", "\n[工具轮次", "\n[重复工具", "\n[回复预算", "\n[工具集", "\n[主动记忆"} {
 		if strings.HasPrefix(delta, p) {
 			return true
 		}

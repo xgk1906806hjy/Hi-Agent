@@ -220,20 +220,20 @@ hi-agent
 
 ---
 
-## 当前能力（Day 1–12）
+## 当前能力（Day 1–13）
 
 - 流式多轮对话（OpenAI 兼容接口）与工具循环护栏
 - 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`、`search` / `fetch`
 - 仓库内容搜索（`路径:行号`，字面/正则，纯 Go）与网页抓取转纯文本（默认先确认）
 - 权限（allow/ask/deny）、路径越界、输出脱敏；多步 `/undo`；工作区路径约束（非 OS 沙箱）
 - 任务清单按会话落盘；子任务委派（复制主 history、可用工具、仅一层）
-- 项目指令 `AGENTS.md` + 长期记忆（跨会话子串搜索）
+- 项目指令 `AGENTS.md` + 长期记忆：显式 `memory_search` 子串搜索；每轮自动用 BM25 召回 Top5 记忆块注入临时 system，不写入 history
 - 技能：`skills/*/SKILL.md` + `/use` `/unuse` `/skills`，system 片段与工具白名单
 - 多会话持久化、轻量 TUI + token 面板
 - 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理、技能卡片
 - 全局 CLI + `setup-env` 一键环境配置
 
-**下一步：Day 13**（主动记忆：切块 + BM25，每轮自动 Top5 进 system）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
+**下一步：Day 14**（轻 RAG：`rag_add` / `rag_search` / `/rag`）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
 
 ## 工程结构
 
@@ -246,7 +246,7 @@ internal/tools/     # 工具注册与执行（相对 cwd）
 internal/session/   # 多会话与落盘（项目 .geekagent/）
 internal/permission/# 权限、SafePath、脱敏
 internal/plan/      # 任务清单（todos.json）
-internal/memory/    # 长期记忆（memory.json）
+internal/memory/    # 长期记忆（memory.json、BM25 主动召回）
 internal/skills/    # 技能扫描（skills/*/SKILL.md）
 internal/tui/       # 轻量全屏界面与面板
 internal/ui/        # UI 抽象工厂（plain / tui / gui）

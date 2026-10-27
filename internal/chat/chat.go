@@ -47,6 +47,9 @@ type Chat struct {
 	skillNote  string   // 已加载技能的 system 片段；空表示没有
 	skillTools []string // 技能工具白名单；nil 表示不限制（空切片表示一个都不给）
 
+	recallFn   func(string) string // 每轮主动记忆召回；nil 表示关闭
+	recallNote string              // 本轮临时 system 片段，不写入 history
+
 	turnUsage    TokenUsage // 本轮（最近一次 StreamReply）
 	cumUsage     TokenUsage // 进程累计
 	ctxTokens    int
@@ -82,6 +85,15 @@ func (c *Chat) SetSkills(note string, allow []string) {
 		return
 	}
 	c.skillTools = append([]string{}, allow...)
+}
+
+// SetRecall 设置主动记忆召回钩子：每轮用户输入后调用，返回要注入本轮 system 的文本。
+// 返回空串表示没有命中；fn 为 nil 表示关闭。内容不写入 history，也不进入会话落盘。
+func (c *Chat) SetRecall(fn func(query string) string) {
+	c.recallFn = fn
+	if fn == nil {
+		c.recallNote = ""
+	}
 }
 
 // intersectTools 求白名单与只读集的交集；allow 为 nil（未加载技能）时返回只读集。
@@ -129,6 +141,8 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 	c.lastReason = endEmpty
 	c.lastShrunk = false
 	c.turnUsage = TokenUsage{}
+	c.recallNote = ""
+	defer func() { c.recallNote = "" }()
 
 	// —— 自动压缩：体积超阈值且条数多于 keepRecent ——
 	if c.historySize() > maxHistoryChars() {
@@ -145,6 +159,14 @@ func (c *Chat) StreamReply(ctx context.Context, userInput string, onDelta func(s
 			} else {
 				onDelta("\n[历史压缩：模型未产出摘要，保留原历史]\n")
 			}
+		}
+	}
+
+	// —— 主动记忆：在压缩之后、工具循环之前召回，避免压缩请求带上临时记忆 ——
+	if c.recallFn != nil && strings.TrimSpace(userInput) != "" {
+		if note := strings.TrimSpace(c.recallFn(userInput)); note != "" {
+			c.recallNote = note
+			onDelta("\n[主动记忆：已注入相关记忆]\n")
 		}
 	}
 
@@ -527,6 +549,7 @@ func (c *Chat) Delegate(ctx context.Context, task string, onDelta func(string)) 
 	parent := cloneMessages(c.history)
 	child := New(c.baseURL, c.apiKey, c.model)
 	child.SetSkills(c.skillNote, c.skillTools)
+	child.SetRecall(c.recallFn)
 	child.SetHistory(parent)
 	delegateDepth.Add(1)
 	defer delegateDepth.Add(-1)
@@ -576,6 +599,7 @@ func (c *Chat) SetHistory(msgs []openai.ChatCompletionMessage) {
 	c.lastReason = endEmpty
 	c.lastShrunk = false
 	c.turnUsage = TokenUsage{}
+	c.recallNote = ""
 	c.estimateContext()
 }
 
@@ -603,5 +627,6 @@ func (c *Chat) Reset() {
 	c.lastReason = endEmpty
 	c.lastShrunk = false
 	c.turnUsage = TokenUsage{}
+	c.recallNote = ""
 	c.estimateContext()
 }
