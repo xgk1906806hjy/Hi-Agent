@@ -85,7 +85,7 @@ func UserConfigPath() string {
 
 // 内置默认：只读工具 allow，会改动环境/联网的工具 ask，其余（含未知工具）deny。
 var (
-	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "search", "todo_write", "delegate_task", "memory_write", "memory_search"}
+	defaultAllow = []string{"get_current_time", "ls", "glob", "read", "search", "todo_write", "delegate_task", "memory_write", "memory_search", "rag_add", "rag_search"}
 	defaultAsk   = []string{"run_shell", "write", "patch", "fetch"}
 )
 

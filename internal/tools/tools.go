@@ -59,6 +59,7 @@ var readonlyToolNames = map[string]struct{}{
 	"glob":             {},
 	"read":             {},
 	"search":           {},
+	"rag_search":       {},
 }
 
 // ReadonlyNames 返回「已注册 ∩ 只读集合」的工具名（顺序随 registry）。
@@ -173,6 +174,7 @@ func init() {
 	registerPlan()
 	registerDelegate()
 	registerMemory()
+	registerRAG()
 	registerSearch()
 	registerFetch()
 }

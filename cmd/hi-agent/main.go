@@ -23,6 +23,7 @@ import (
 	"github.com/xgk1906806hjy/Hi-Agent/internal/memory"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/permission"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/plan"
+	"github.com/xgk1906806hjy/Hi-Agent/internal/rag"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/session"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/skills"
 	"github.com/xgk1906806hjy/Hi-Agent/internal/tools"
@@ -639,6 +640,7 @@ func slashCommands() []ui.SlashCmd {
 		{Name: "/rename", Desc: "重命名会话"},
 		{Name: "/delete", Desc: "删除会话"},
 		{Name: "/memory", Desc: "列出长期记忆"},
+		{Name: "/rag", Desc: "查看 RAG 索引"},
 		{Name: "/undo", Desc: "撤销最近一次写文件"},
 		{Name: "/permissions", Desc: "查看工具权限规则"},
 		{Name: "/save", Desc: "保存会话"},
@@ -868,6 +870,29 @@ func (a *app) handleCommand(line string) bool {
 			break
 		}
 		a.ui.Info(strings.Join(lines, "\n"))
+	case "/rag":
+		if len(args) > 0 && strings.EqualFold(args[0], "clear") {
+			if !a.ui.Confirm("确认清空当前项目的 RAG 索引？") {
+				a.ui.Info("（已取消）")
+				break
+			}
+			if err := rag.Clear(); err != nil {
+				a.ui.Error("RAG：" + err.Error())
+				break
+			}
+			a.ui.Info("（已清空 RAG 索引）")
+			break
+		}
+		if len(args) > 0 {
+			a.ui.Info("用法：/rag 查看索引，/rag clear 清空索引")
+			break
+		}
+		lines, err := rag.Lines()
+		if err != nil {
+			a.ui.Error("RAG：" + err.Error())
+			break
+		}
+		a.ui.Info(strings.Join(lines, "\n"))
 	case "/undo":
 		msg, err := tools.UndoLast()
 		if err != nil {
@@ -944,6 +969,7 @@ func helpText() string {
   /rename [旧] <新>  重命名会话（省略旧 ID 即当前会话）
   /delete <id>       删除会话（需确认；删当前会话会切到最近的另一个）
   /memory            列出当前项目的长期记忆（.geekagent/memory.json）
+  /rag               查看当前项目的 RAG 索引；/rag clear 清空索引
   /undo              撤销最近一次 write/patch（最多 20 步，不撤销 shell）
   /permissions       查看工具权限规则（项目与用户 GeekAgent.json，项目优先）
   /save              保存全部会话到 %s

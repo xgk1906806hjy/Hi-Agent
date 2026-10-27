@@ -29,6 +29,7 @@
 | permission | `docs/permission/` | `internal/permission/` |
 | plan | `docs/plan/` | `internal/plan/` |
 | memory | `docs/memory/` | `internal/memory/` |
+| rag | `docs/rag/` | `internal/rag/` |
 | skills | `docs/skills/` | `internal/skills/` |
 | repl | `docs/repl/` | `cmd/hi-agent/` |
 

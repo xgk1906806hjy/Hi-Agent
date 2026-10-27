@@ -26,6 +26,7 @@ func TestDefaultDecisions(t *testing.T) {
 	p := Default()
 	cases := map[string]Decision{
 		"read": Allow, "ls": Allow, "glob": Allow, "search": Allow, "get_current_time": Allow,
+		"rag_add": Allow, "rag_search": Allow,
 		"run_shell": Ask, "write": Ask, "patch": Ask, "fetch": Ask,
 		"mcp_x_y": Deny,
 	}
@@ -45,6 +46,7 @@ func TestSubject(t *testing.T) {
 		{"search", `{"pattern":"TODO"}`, "TODO"},
 		{"fetch", `{"url":"https://example.com/a"}`, "https://example.com/a"},
 		{"read", `{"path":"docs\\a.md"}`, "docs/a.md"},
+		{"rag_add", `{"path":"docs\\guide.md"}`, "docs/guide.md"},
 	}
 	for _, c := range cases {
 		if got := Subject(c.tool, c.args); got != c.want {

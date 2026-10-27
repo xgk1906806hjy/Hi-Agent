@@ -154,7 +154,7 @@ hi-agent
 ### 4. 使用中
 
 1. 用自然语言提需求（TUI/plain 在 `You ›` 后输入；GUI 在窗口底部输入框输入，点「发送」）。
-2. 工具以当前目录为工作区：`ls` / `glob` / `read` / `search` / `write` / `patch` / `run_shell`，以及抓取网页的 `fetch`（写文件、shell 与 fetch 需确认；search 免确认）。
+2. 工具以当前目录为工作区：`ls` / `glob` / `read` / `search` / `write` / `patch` / `run_shell`，抓取网页的 `fetch`，以及轻 RAG 的 `rag_add` / `rag_search`（写文件、shell 与 fetch 需确认；search / rag_search 免确认）。
 3. 斜杠命令见下表；输入 `/` 可展开命令菜单。
 
 各界面的操作差异：
@@ -194,6 +194,7 @@ hi-agent
 | `/compact` | 压缩旧对话摘要 |
 | `/reset` | 清空当前会话记忆 |
 | `/memory` | 列出项目长期记忆 |
+| `/rag` | 查看 RAG 索引；`/rag clear` 清空索引 |
 | `/undo` | 撤销最近一次 write/patch（最多 20 步） |
 | `/permissions` | 显示项目与用户权限规则 |
 | `/exit` | 保存并退出 |
@@ -208,6 +209,7 @@ hi-agent
 | 多会话 JSON | `{cwd}/.geekagent/sessions.json` |
 | 任务清单 | `{cwd}/.geekagent/todos.json`（按会话） |
 | 长期记忆 | `{cwd}/.geekagent/memory.json` |
+| RAG 索引 | `{cwd}/.geekagent/rag/index.json` |
 | 权限规则 | `{cwd}/.geekagent/GeekAgent.json`；用户级 `~/.hi-agent/GeekAgent.json` |
 | 撤销栈 | `{cwd}/.geekagent/undo.json` |
 | 全局 API 配置 | `~/.hi-agent/.env` |
@@ -220,11 +222,12 @@ hi-agent
 
 ---
 
-## 当前能力（Day 1–13）
+## 当前能力（Day 1–14）
 
 - 流式多轮对话（OpenAI 兼容接口）与工具循环护栏
-- 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`、`search` / `fetch`
+- 工具：`get_current_time`、`run_shell`、`ls` / `glob` / `read` / `write` / `patch`、`todo_write`、`delegate_task`、`memory_write` / `memory_search`、`rag_add` / `rag_search`、`search` / `fetch`
 - 仓库内容搜索（`路径:行号`，字面/正则，纯 Go）与网页抓取转纯文本（默认先确认）
+- 轻 RAG：`rag_add` 采集工作区文件/目录到 `.geekagent/rag/index.json`；`rag_search` 用 BM25 返回带 `[来源#段号]` 的 TopK 片段，采集全文不回显到当前上下文
 - 权限（allow/ask/deny）、路径越界、输出脱敏；多步 `/undo`；工作区路径约束（非 OS 沙箱）
 - 任务清单按会话落盘；子任务委派（复制主 history、可用工具、仅一层）
 - 项目指令 `AGENTS.md` + 长期记忆：显式 `memory_search` 子串搜索；每轮自动用 BM25 召回 Top5 记忆块注入临时 system，不写入 history
@@ -233,7 +236,7 @@ hi-agent
 - 桌面 GUI（Wails + React）：精密纸面视觉、无边框标题栏、主题三态、跨项目会话管理、技能卡片
 - 全局 CLI + `setup-env` 一键环境配置
 
-**下一步：Day 14**（轻 RAG：`rag_add` / `rag_search` / `/rag`）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
+**下一步：Day 15**（MCP 客户端：`.geekagent/mcp.json`、stdio、`mcp_<server>_<tool>`）。路线图见 [doc/开发方案-按Day.md](doc/开发方案-按Day.md)。
 
 ## 工程结构
 
@@ -247,6 +250,7 @@ internal/session/   # 多会话与落盘（项目 .geekagent/）
 internal/permission/# 权限、SafePath、脱敏
 internal/plan/      # 任务清单（todos.json）
 internal/memory/    # 长期记忆（memory.json、BM25 主动召回）
+internal/rag/       # 轻 RAG（rag/index.json、切块 + BM25）
 internal/skills/    # 技能扫描（skills/*/SKILL.md）
 internal/tui/       # 轻量全屏界面与面板
 internal/ui/        # UI 抽象工厂（plain / tui / gui）
